@@ -228,7 +228,8 @@ Chk::Action::Argument Chk::Action::classicArguments[NumActionTypes][MaxArguments
     /** 56 = Draw --------------------------------- */ {},
     /** 57 = Set Alliance Status                    */ { playerArg, allyStateArg },
     /** 58 = Disable Debug Mode ------------------- */ {},
-    /** 59 = Enable Debug Mode                      */ {}
+    /** 59 = Enable Debug Mode                      */ {},
+    /** 60 = Execute Lua                            */ { stringArg },
 };
 
 Chk::Action::Argument Chk::Action::textArguments[NumActionTypes][MaxArguments] = {
@@ -291,7 +292,8 @@ Chk::Action::Argument Chk::Action::textArguments[NumActionTypes][MaxArguments] =
     /** 56 = Draw --------------------------------- */ {},
     /** 57 = Set Alliance Status                    */ { playerArg, allyStateArg },
     /** 58 = Disable Debug Mode ------------------- */ {},
-    /** 59 = Enable Debug Mode                      */ {}
+    /** 59 = Enable Debug Mode                      */ {},
+    /** 60 = Execute Lua                            */ { stringArg },
 };
 
 u8 Chk::Action::defaultFlags[NumActionTypes] = {
@@ -354,7 +356,8 @@ u8 Chk::Action::defaultFlags[NumActionTypes] = {
     /** 56 = Draw --------------------------------- */ (u8)Flags::AlwaysDisplay,
     /** 57 = Set Alliance Status                    */ (u8)Flags::AlwaysDisplay,
     /** 58 = Disable Debug Mode ------------------- */ 0,
-    /** 59 = Enable Debug Mode                      */ 0
+    /** 59 = Enable Debug Mode                      */ 0,
+    /** 60 = Execute Lua                            */ (u8)Flags::AlwaysDisplay,
 };
 
 const Chk::Condition::Argument & Chk::Condition::getClassicArg(Type conditionType, size_t argIndex)
@@ -988,7 +991,8 @@ bool Chk::Action::actionUsesStringArg[NumActionTypes] = {
     /** 48 = Give Units to Player                   */ false, /** 49 = Modify Unit Hit Points                 */ false, /** 50 = Modify Unit Energy                     */ false,
     /** 51 = Modify Unit Shield points ------------ */ false, /** 52 = Modify Unit Resource Amount ---------- */ false, /** 53 = Modify Unit Hanger Count ------------- */ false,
     /** 54 = Pause Timer                            */ false, /** 55 = Unpause Timer                          */ false, /** 56 = Draw                                   */ false,
-    /** 57 = Set Alliance Status ------------------ */ false, /** 58 = Disable Debug Mode ------------------- */ false, /** 59 = Enable Debug Mode -------------------- */ false
+    /** 57 = Set Alliance Status ------------------ */ false, /** 58 = Disable Debug Mode ------------------- */ false, /** 59 = Enable Debug Mode -------------------- */ false,
+    /** 57 = Execute Lua -------------------------- */ true,
 };
 
 bool Chk::Action::actionUsesGameStringArg[NumActionTypes] = {

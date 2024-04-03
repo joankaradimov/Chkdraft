@@ -768,6 +768,9 @@ std::string TriggersWindow::GetActionString(u8 actionNum, const Chk::Trigger & t
                 << "\x0C, \x08" << action.type << "\x0C, \x08" << u16(action.actionType) << "\x0C, \x08" << u16(action.type2)
                 << "\x0C, \x08" << u16(action.flags) << "\x0C, \x08" << (u16)action.padding << "\x0C, \x08" << action.maskFlag << "\x0C.";
             break;
+        case Chk::Action::Type::ExecuteLua: // String
+            ssAction << "Execute Lua:\x08" << tt.getTrigString(action.stringId) << "\x0C";
+            break;
     }
     return ssAction.str();
 }
