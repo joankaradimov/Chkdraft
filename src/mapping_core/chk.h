@@ -733,7 +733,7 @@ namespace Chk {
 
     struct alignas(1) Action
     {
-        static constexpr size_t NumActionTypes = 60;
+        static constexpr size_t NumActionTypes = 61;
         static constexpr size_t NumBriefingActionTypes = 10;
         static constexpr size_t InternalDataBytes = 3;
         static constexpr size_t MaxArguments = 12;
@@ -798,7 +798,8 @@ namespace Chk {
             UnpauseTimer = 55,
             Victory = 1,
             Wait = 4,
-            LastAction = 59,
+            ExecuteLua = 60,
+            LastAction = 60,
 
             BriefingNoAction = 0,
             BriefingWait = 1,
@@ -872,6 +873,7 @@ namespace Chk {
             UnpauseTimer = 55,
             Victory = 1,
             Wait = 4,
+            ExecuteLua = 60,
 
             Custom = -1,
             SetMemory = -2,

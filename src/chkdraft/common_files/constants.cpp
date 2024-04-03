@@ -328,7 +328,7 @@ const std::vector<std::string> triggerActions =
     "Set Next Scenario", "Set Doodad State", "Set Invincibility", "Create Unit", "Set Deaths", "Order", "Comment", 
     "Give Units to Player", "Modify Unit Hit Points", "Modify Unit Energy", "Modify Unit Shield Points", 
     "Modify Unit Resource Amount", "Modify Unit Hangar Count", "Pause Timer", "Unpause Timer", "Draw", 
-    "Set Alliance Status", "Disable Debug Mode", "Enable Debug Mode"
+    "Set Alliance Status", "Disable Debug Mode", "Enable Debug Mode", "Execute Lua"
 };
 
 const std::vector<std::string> briefingTriggerActions =
