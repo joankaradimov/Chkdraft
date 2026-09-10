@@ -86,7 +86,7 @@ bool MapPropertiesWindow::CreateThis(HWND hParent, u64 windowId)
         {
             mapTitle = CM->getScenarioName<ChkdString>();
             mapDescription = CM->getScenarioDescription<ChkdString>();
-            currTileset = CM->getTileset() % Sc::Terrain::NumTilesets,
+            currTileset = u16(chkd.scData->terrain.indexOf(CM->getTileset())),
             currWidth = (u16)CM->getTileWidth(),
             currHeight = (u16)CM->getTileHeight();
         }
@@ -103,7 +103,7 @@ bool MapPropertiesWindow::CreateThis(HWND hParent, u64 windowId)
         std::string sCurrHeight(std::to_string(currHeight));
 
         textMapTileset.CreateThis(hMapProperties, 5, 185, 100, 20, "Map Tileset", 0);
-        dropMapTileset.CreateThis(hMapProperties, 5, 205, 185, 400, false, false, Id::CB_MAPTILESET, tilesetNames);
+        dropMapTileset.CreateThis(hMapProperties, 5, 205, 185, 400, false, false, Id::CB_MAPTILESET, chkd.scData->terrain.tilesetDisplayNames);
         textNewMapTerrain.CreateThis(hMapProperties, 195, 185, 100, 20, "[New] Terrain", 0);
 
         const auto & tileset = chkd.scData->terrain.get(Sc::Terrain::Tileset(currTileset));
@@ -179,7 +179,7 @@ void MapPropertiesWindow::RefreshWindow()
     {
         auto mapTitle = CM->getScenarioName<ChkdString>();
         auto mapDescription = CM->getScenarioDescription<ChkdString>();
-        u16 tilesetIndex = CM->getTileset(),
+        u16 tilesetIndex = u16(chkd.scData->terrain.indexOf(CM->getTileset())),
             currWidth = (u16)CM->getTileWidth(),
             currHeight = (u16)CM->getTileHeight();
 
@@ -298,7 +298,7 @@ LRESULT MapPropertiesWindow::Command(HWND hWnd, WPARAM wParam, LPARAM lParam)
         {
             HWND hMapTileset = GetDlgItem(hWnd, Id::CB_MAPTILESET), hMapNewTerrain = GetDlgItem(hWnd, Id::CB_NEWMAPTERRAIN);
             LRESULT currTileset = SendMessage(hMapTileset, CB_GETCURSEL, 0, 0);
-            if ( currTileset != CB_ERR && currTileset < (LRESULT)tilesetNames.size())
+            if ( currTileset != CB_ERR && currTileset < (LRESULT)chkd.scData->terrain.tilesetDisplayNames.size())
             {
                 while ( SendMessage(hMapNewTerrain, CB_DELETESTRING, 0, 0) != CB_ERR );
 

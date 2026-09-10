@@ -16,6 +16,7 @@
 #include <glm/glm.hpp>
 #include <rarecpp/reflect.h>
 #include <chrono>
+#include <map>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -792,12 +793,12 @@ struct GraphicsData
                 std::optional<gl::Palette> remapPalette[7];
                 std::vector<u16> maskIds {};
 
-                void load(ArchiveCluster & archiveCluster, const LoadSettings & loadSettings, ByteBuffer & fileData);
+                void load(ArchiveCluster & archiveCluster, const std::string & tilesetName, const LoadSettings & loadSettings, ByteBuffer & fileData);
             };
             std::optional<gl::Palette> tunitPalette {};
             std::optional<gl::Palette> tselectPalette {};
             std::shared_ptr<SpkData> spk {};
-            std::shared_ptr<Tileset> tiles[Sc::Terrain::NumTilesets] {};
+            std::map<size_t, std::shared_ptr<Tileset>> tiles {};
             std::shared_ptr<std::vector<std::shared_ptr<Animation>>> images {}; // 999 images
             std::shared_ptr<std::vector<std::shared_ptr<ClassicGrp>>> classicImages {}; // 999 images
 
@@ -805,7 +806,7 @@ struct GraphicsData
             void loadStars(ArchiveCluster & archiveCluster, std::filesystem::path texPrefix, ByteBuffer & fileData);
                 
             void loadClassicTiles(Sc::Data & scData, const LoadSettings & loadSettings);
-            void loadTiles(ArchiveCluster & archiveCluster, const LoadSettings & loadSettings, ByteBuffer & fileData);
+            void loadTiles(Sc::Data & scData, ArchiveCluster & archiveCluster, const LoadSettings & loadSettings, ByteBuffer & fileData);
                 
             void loadClassicImageFrame(std::size_t frameIndex, std::size_t imageIndex, Sc::Data & scData, std::vector<u8> & bitmapData, bool saveBinds);
             void loadClassicImages(Sc::Data & scData);

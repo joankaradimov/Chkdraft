@@ -33,7 +33,7 @@ bool DimensionsWindow::DestroyThis()
 
 void DimensionsWindow::RefreshWindow()
 {
-    listTileset.SetCurSel(CM->getTileset());
+    listTileset.SetCurSel(int(chkd.scData->terrain.indexOf(CM->getTileset())));
     UpdateTerrainList();
     editWidth.SetEditNum<u16>(u16(CM->getTileWidth()));
     editHeight.SetEditNum<u16>(u16(CM->getTileHeight()));
@@ -60,7 +60,8 @@ void DimensionsWindow::ResizeChangeTileset()
 {
     auto newWidth = editWidth.GetEditNum<u16>();
     auto newHeight = editHeight.GetEditNum<u16>();
-    int newTilesetIndex = CM->getTileset();
+    int currTilesetIndex = int(chkd.scData->terrain.indexOf(CM->getTileset()));
+    int newTilesetIndex = currTilesetIndex;
     listTileset.GetCurSel(newTilesetIndex);
     const auto & tileset = chkd.scData->terrain.get(Sc::Terrain::Tileset(newTilesetIndex));
     LPARAM newTerrainTypeIndex = 0;
@@ -83,13 +84,13 @@ void DimensionsWindow::ResizeChangeTileset()
         int leftOffset = *newLeft;
         int topOffset = *newTop;
         if ( width == CM->getTileWidth() && height == CM->getTileHeight() && leftOffset == 0 && topOffset == 0 &&
-             Sc::Terrain::Tileset(newTilesetIndex) == CM->getTileset() )
+             newTilesetIndex == currTilesetIndex )
         {
             DestroyThis(); // No change
         }
         else
         {
-            if ( Sc::Terrain::Tileset(newTilesetIndex) != CM->getTileset() )
+            if ( newTilesetIndex != currTilesetIndex )
                 CM->setTileset(Sc::Terrain::Tileset(newTilesetIndex));
 
             try {
@@ -117,7 +118,7 @@ void DimensionsWindow::CreateSubWindows(HWND hWnd)
     listTileset.FindThis(hWnd, IDC_LIST_TILESET);
     listTerrain.FindThis(hWnd, IDC_LIST_TERRAIN);
     checkSmoothBorder.FindThis(hWnd, IDC_CHECK_SMOOTHBORDER);
-    listTileset.AddStrings(tilesetNames);
+    listTileset.AddStrings(chkd.scData->terrain.tilesetDisplayNames);
     RefreshWindow();
     editLeft.SetEditNum<int>(0);
     editTop.SetEditNum<int>(0);

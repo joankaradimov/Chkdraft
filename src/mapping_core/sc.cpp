@@ -1741,7 +1741,7 @@ size_t Sc::Ai::numEntries() const
     return entries.size();
 }
 
-const std::vector<std::string> Sc::Terrain::TilesetNames = {
+const std::vector<std::string> Sc::Terrain::DefaultTilesetNames = {
     "badlands",
     "platform",
     "install",
@@ -1752,9 +1752,30 @@ const std::vector<std::string> Sc::Terrain::TilesetNames = {
     "Twilight"
 };
 
-void Sc::Terrain::Tiles::populateTerrainTypeMap(size_t tilesetIndex)
+const std::vector<std::string> Sc::Terrain::DefaultTilesetDisplayNames = {
+    "Badlands",
+    "Space Platform",
+    "Installation",
+    "Ash World",
+    "Jungle World",
+    "Desert World",
+    "Ice World",
+    "Twilight World"
+};
+
+static void overrideNames(const Sc::TblFile & tbl, std::vector<std::string> & names, size_t firstStringIndex)
 {
-    const auto & compressedTerrainTypeMap = Isom::compressedTerrainTypeMaps[tilesetIndex];
+    for ( size_t i=0; i<names.size(); ++i )
+    {
+        size_t stringIndex = firstStringIndex + i;
+        if ( stringIndex >= 1 && stringIndex <= tbl.numStrings() && !tbl.getString(stringIndex).empty() )
+            names[i] = tbl.getString(stringIndex);
+    }
+}
+
+void Sc::Terrain::Tiles::populateTerrainTypeMap(size_t baseTileset)
+{
+    const auto & compressedTerrainTypeMap = Isom::compressedTerrainTypeMaps[baseTileset];
 
     size_t totalTerrainTypes = terrainTypes.size();
     terrainTypeMap.assign(totalTerrainTypes*totalTerrainTypes, uint16_t(0));
@@ -1906,11 +1927,29 @@ void Sc::Terrain::Tiles::generateIsomLinks()
     }
 }
 
-void Sc::Terrain::Tiles::loadIsom(size_t tilesetIndex)
+void Sc::Terrain::Tiles::loadTerrainTypes(size_t baseTileset, ArchiveCluster & archiveCluster, const std::string & tilesetName)
 {
-    Span<Isom::TerrainTypeInfo> terrainTypeInfo = Isom::tilesetTerrainTypes[tilesetIndex];
-    this->terrainTypes = terrainTypeInfo;
-    populateTerrainTypeMap(tilesetIndex);
+    const auto & terrainTypeInfo = Isom::tilesetTerrainTypes[baseTileset];
+    terrainTypes.assign(terrainTypeInfo.begin(), terrainTypeInfo.end());
+
+    terrainTypeNames = std::make_shared<std::vector<std::string>>();
+    terrainTypeNames->reserve(terrainTypes.size());
+    for ( const auto & terrainType : terrainTypes )
+        terrainTypeNames->emplace_back(terrainType.name);
+
+    // String n of tileset\<name>.tbl names cv5 terrain type n; string 0 is no string, as terrain type 0 is no terrain.
+    // The file is optional, so a miss is not logged.
+    Sc::TblFile names {};
+    if ( names.load(archiveCluster, makeExtArchiveFilePath(makeArchiveFilePath("tileset", tilesetName), "tbl"), true) )
+        overrideNames(names, *terrainTypeNames, 0);
+
+    for ( size_t i=0; i<terrainTypes.size(); ++i )
+        terrainTypes[i].name = (*terrainTypeNames)[i];
+}
+
+void Sc::Terrain::Tiles::loadIsom(size_t baseTileset)
+{
+    populateTerrainTypeMap(baseTileset);
 
     for ( size_t i=0; i<tileGroups.size(); i+=2 )
     {
@@ -1933,7 +1972,7 @@ void Sc::Terrain::Tiles::loadIsom(size_t tilesetIndex)
 
     generateIsomLinks();
 
-    for ( const auto & terrainType : terrainTypeInfo )
+    for ( const auto & terrainType : terrainTypes )
     {
         if ( terrainType.brushSortOrder >= 0 )
             brushes.push_back(terrainType);
@@ -1941,7 +1980,7 @@ void Sc::Terrain::Tiles::loadIsom(size_t tilesetIndex)
     std::sort(brushes.begin(), brushes.end(), [&](const Isom::TerrainTypeInfo & l, const Isom::TerrainTypeInfo & r) {
         return l.brushSortOrder < r.brushSortOrder;
     });
-    defaultBrush = terrainTypeInfo[Isom::defaultBrushIndex[tilesetIndex]];
+    defaultBrush = terrainTypes[Isom::defaultBrushIndex[baseTileset]];
 }
 
 bool Sc::Terrain::Tiles::load(size_t tilesetIndex, ArchiveCluster & archiveCluster, const std::string & tilesetName, Sc::TblFilePtr statTxt,
@@ -2112,7 +2151,8 @@ bool Sc::Terrain::Tiles::load(size_t tilesetIndex, ArchiveCluster & archiveClust
                 return l.name < r.name;
             });
 
-            loadIsom(tilesetIndex);
+            loadTerrainTypes(Terrain::baseOf(tilesetIndex), archiveCluster, tilesetName);
+            loadIsom(Terrain::baseOf(tilesetIndex));
 
             return remappingFilesLoaded;
         }
@@ -2136,10 +2176,7 @@ std::optional<uint16_t> Sc::Terrain::Tiles::getDoodadGroupIndex(uint16_t doodadI
 
 const Sc::Terrain::Tiles & Sc::Terrain::get(const Tileset & tileset) const
 {
-    if ( tileset < NumTilesets )
-        return tilesets[tileset];
-    else
-        return tilesets[tileset % NumTilesets];
+    return tilesets[indexOf(tileset)];
 }
 
 bool Sc::Terrain::load(ArchiveCluster & archiveCluster, Sc::TblFilePtr statTxt)
@@ -2148,8 +2185,37 @@ bool Sc::Terrain::load(ArchiveCluster & archiveCluster, Sc::TblFilePtr statTxt)
     bool success = true;
     this->doodadSpriteFlags.fill(0);
     this->doodadUnitFlags.fill(0);
-    for ( size_t i=0; i<NumTilesets; i++ )
-        success &= tilesets[i].load(i, archiveCluster, TilesetNames[i], statTxt, doodadSpriteFlags, doodadUnitFlags);
+
+    // The tileset tables list the tilesets in order from string 1, as string 0 of a tbl is no string. Both are optional,
+    // so a miss is not logged. arr\tilesets.tbl also sets how many tilesets there are, when it has any strings at all.
+    tilesetNames = DefaultTilesetNames;
+    Sc::TblFile tilesetsTbl {};
+    if ( tilesetsTbl.load(archiveCluster, "arr\\tilesets.tbl", true) && tilesetsTbl.numStrings() > 0 )
+    {
+        tilesetNames.resize(tilesetsTbl.numStrings());
+        overrideNames(tilesetsTbl, tilesetNames, 1);
+    }
+
+    tilesetDisplayNames = DefaultTilesetDisplayNames;
+    tilesetDisplayNames.resize(tilesetNames.size());
+    for ( size_t i=NumBaseTilesets; i<tilesetNames.size(); ++i )
+        tilesetDisplayNames[i] = tilesetNames[i];
+    Sc::TblFile displayNamesTbl {};
+    if ( displayNamesTbl.load(archiveCluster, "Rez\\tilesets.tbl", true) )
+        overrideNames(displayNamesTbl, tilesetDisplayNames, 1);
+
+    tilesets.clear();
+    tilesets.resize(tilesetNames.size());
+    for ( size_t i=0; i<tilesets.size(); i++ )
+    {
+        if ( tilesetNames[i].empty() )
+        {
+            logger.error() << "arr\\tilesets.tbl names no files for tileset " << i << std::endl;
+            success = false;
+        }
+        else
+            success &= tilesets[i].load(i, archiveCluster, tilesetNames[i], statTxt, doodadSpriteFlags, doodadUnitFlags);
+    }
     
     auto finish = std::chrono::high_resolution_clock::now();
     logger.debug() << "Terrain loading completed in " << std::chrono::duration_cast<std::chrono::milliseconds>(finish-start).count() << "ms" << std::endl;
@@ -2158,18 +2224,12 @@ bool Sc::Terrain::load(ArchiveCluster & archiveCluster, Sc::TblFilePtr statTxt)
 
 const std::array<Sc::SystemColor, Sc::NumColors> & Sc::Terrain::getColorPalette(Tileset tileset) const
 {
-    if ( tileset < Terrain::NumTilesets )
-        return tilesets[tileset].systemColorPalette;
-    else
-        return tilesets[tileset % Terrain::NumTilesets].systemColorPalette;
+    return tilesets[indexOf(tileset)].systemColorPalette;
 }
 
 const std::array<Sc::SystemColor, Sc::NumColors> & Sc::Terrain::getStaticColorPalette(Tileset tileset) const
 {
-    if ( tileset < Terrain::NumTilesets )
-        return tilesets[tileset].staticSystemColorPalette;
-    else
-        return tilesets[tileset % Terrain::NumTilesets].staticSystemColorPalette;
+    return tilesets[indexOf(tileset)].staticSystemColorPalette;
 }
 
 void Sc::Terrain::mergeSpriteFlags(const Sc::Unit & unitData)
@@ -4243,11 +4303,11 @@ const std::vector<std::string> Sc::Sound::virtualSoundPaths = {
     "sound\\Protoss\\Artanis\\PAtYes03.wav"
 };
 
-bool Sc::TblFile::load(ArchiveCluster & archiveCluster, const std::string & assetArchivePath)
+bool Sc::TblFile::load(ArchiveCluster & archiveCluster, const std::string & assetArchivePath, bool silent)
 {
     strings.clear();
 
-    if ( auto rawData = Sc::Data::GetAsset(archiveCluster, assetArchivePath) )
+    if ( auto rawData = Sc::Data::GetAsset(archiveCluster, assetArchivePath, silent) )
     {
         s64 numStrings = rawData->size() >= 2 ? s64((u16 &)rawData.value()[0]) : 0;
         if ( numStrings > 0 )
@@ -4711,9 +4771,9 @@ bool Sc::Data::loadSpriteGroups(ArchiveCluster & archiveCluster, Sc::TblFilePtr 
 
     sprites.spriteAutoRestart.assign(totalSprites, true);
     auto & doodads = sprites.spriteGroups.emplace_back(Sc::Sprite::SpriteGroup{"Doodads"});
-    for ( u16 tilesetIndex = Sc::Terrain::Tileset::Badlands; tilesetIndex < Sc::Terrain::NumTilesets; ++tilesetIndex )
+    for ( u16 tilesetIndex = Sc::Terrain::Tileset::Badlands; tilesetIndex < terrain.numTilesets(); ++tilesetIndex )
     {
-        std::string tilesetName = terrain.TilesetNames[tilesetIndex];
+        std::string tilesetName = terrain.tilesetNames[tilesetIndex];
         tilesetName[0] = std::toupper(tilesetName[0]);
         auto & tilesetDoodads = doodads.subGroups.emplace_back(Sc::Sprite::SpriteGroup{tilesetName});
         const auto & tileset = terrain.get(Sc::Terrain::Tileset(tilesetIndex));
@@ -4736,7 +4796,7 @@ bool Sc::Data::loadSpriteGroups(ArchiveCluster & archiveCluster, Sc::TblFilePtr 
                 }
             }
 
-            switch ( tilesetIndex )
+            switch ( Sc::Terrain::baseOf(tilesetIndex) )
             {
                 case Sc::Terrain::Tileset::Badlands:
                     if ( doodadGroup.name == "Asphalt" )

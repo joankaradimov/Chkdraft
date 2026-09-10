@@ -1878,7 +1878,7 @@ bool GuiMap::UpdateGlGraphics()
 bool GuiMap::Animate()
 {
     if ( skin == ChkdSkin::ClassicGDI )
-        return chkd.colorCycler.cycleColors(read.tileset, scGraphics->getPalette());
+        return chkd.colorCycler.cycleColors(Sc::Terrain::baseOf(chkd.scData->terrain.indexOf(read.tileset)), scGraphics->getPalette());
     else if ( chkd.gameClock.tick() )
     {
         auto currentTick = chkd.gameClock.currentTick();
@@ -2028,7 +2028,7 @@ void GuiMap::PaintMiniMap(const WinLib::DeviceContext & dc)
 void GuiMap::Redraw(bool includeMiniMap)
 {
     if ( skin == ChkdSkin::ClassicGDI )
-        chkd.colorCycler.cycleColors(read.tileset, scGraphics->getPalette());
+        chkd.colorCycler.cycleColors(Sc::Terrain::baseOf(chkd.scData->terrain.indexOf(read.tileset)), scGraphics->getPalette());
     else if ( chkd.gameClock.tick() && CM != nullptr )
     {
         auto currentTick = chkd.gameClock.currentTick();
@@ -4099,7 +4099,7 @@ void GuiMap::SetSkin(ChkdSkin skin, bool reloadCurrent)
     GraphicsData::LoadSettings loadSettings {
         .visualQuality = VisualQuality::SD,
         .skinId = ::Skin::Id::Classic,
-        .tileset = Sc::Terrain::Tileset(MapFile::getTileset() % Sc::Terrain::NumTilesets),
+        .tileset = Sc::Terrain::Tileset(chkd.scData->terrain.indexOf(MapFile::getTileset())),
         .forceShowStars = false
     };
     switch ( skin )

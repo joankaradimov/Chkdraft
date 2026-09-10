@@ -1912,7 +1912,7 @@ namespace Sc {
     class TblFile
     {
     public:
-        bool load(ArchiveCluster & archiveClusters, const std::string & archiveFileName);
+        bool load(ArchiveCluster & archiveClusters, const std::string & archiveFileName, bool silent = false);
         size_t numStrings() const;
         const std::string & getString(size_t stringIndex) const;
         bool getString(size_t stringIndex, std::string & outString) const;
@@ -3841,9 +3841,13 @@ namespace Sc {
     };
 
     struct Terrain {
-        static constexpr size_t NumTilesets = 8;
+        static constexpr size_t NumBaseTilesets = 8; // The eight tilesets the game ships
         static constexpr size_t PixelsPerTile = 32;
-        static const std::vector<std::string> TilesetNames;
+
+        static const std::vector<std::string> DefaultTilesetNames; // The file basenames of the tilesets, "badlands" to "Twilight"
+        static const std::vector<std::string> DefaultTilesetDisplayNames; // The names the editor shows for them, "Badlands" to "Twilight World"
+        std::vector<std::string> tilesetNames { DefaultTilesetNames };
+        std::vector<std::string> tilesetDisplayNames { DefaultTilesetDisplayNames };
 
         enum_t(TileNeighbor, u8, { Left = BIT_0, Top = BIT_1, Right = BIT_2, Bottom = BIT_3,
             All = Left | Top | Right | Bottom, xLeft = x8BIT_0, xTop = x8BIT_1, xRight = x8BIT_2, xBottom = x8BIT_3, None = 0 });
@@ -3859,9 +3863,15 @@ namespace Sc {
             Twilight = 7
         });
 
+        size_t numTilesets() const { return tilesets.size(); }
+
+        size_t indexOf(size_t tileset) const { return tileset % numTilesets(); }
+
+        static constexpr Tileset baseOf(size_t tilesetIndex) { return Tileset(tilesetIndex % NumBaseTilesets); }
+
         static constexpr bool hasWater(Tileset tileset)
         {
-            switch ( Sc::Terrain::Tileset(u16(tileset) % u16(NumTilesets)) )
+            switch ( baseOf(size_t(tileset)) )
             {
                 case Tileset::Badlands:
                 case Tileset::Jungle:
@@ -4084,15 +4094,19 @@ namespace Sc {
             std::unordered_map<uint32_t, std::vector<uint16_t>> hashToTileGroup {};
             std::unordered_map<uint16_t, uint16_t> doodadIdToTileGroup {};
             std::vector<Isom::ShapeLinks> isomLinks {};
-            Span<Isom::TerrainTypeInfo> terrainTypes {};
+
+            std::vector<Isom::TerrainTypeInfo> terrainTypes {};
+            std::shared_ptr<std::vector<std::string>> terrainTypeNames {};
             std::vector<Isom::TerrainTypeInfo> brushes {};
             Isom::TerrainTypeInfo defaultBrush {};
 
-            void populateTerrainTypeMap(size_t tilesetIndex);
+            void populateTerrainTypeMap(size_t baseTileset);
 
             void generateIsomLinks();
 
-            void loadIsom(size_t tilesetIndex);
+            void loadTerrainTypes(size_t baseTileset, ArchiveCluster & archiveCluster, const std::string & tilesetName);
+
+            void loadIsom(size_t baseTileset);
 
             bool load(size_t tilesetIndex, ArchiveCluster & archiveCluster, const std::string & tilesetName, Sc::TblFilePtr statTxt,
                 std::array<u16, Sprite::TotalSprites> & doodadSpriteFlags, std::array<u16, Unit::TotalTypes> & doodadUnitFlags);
@@ -4116,7 +4130,7 @@ namespace Sc {
         std::array<u16, Unit::TotalTypes> doodadUnitFlags {};
 
     private:
-        Tiles tilesets[NumTilesets];
+        std::vector<Tiles> tilesets = std::vector<Tiles>(NumBaseTilesets);
     };
 
     /**

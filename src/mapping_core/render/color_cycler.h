@@ -91,7 +91,7 @@ public:
         bool redraw = false;
         if ( colorCycleClock.tick() )
         {
-            size_t currentRotationSet = TilesetRotationSet[tileset];
+            size_t currentRotationSet = tileset < std::size(TilesetRotationSet) ? TilesetRotationSet[tileset] : TotalRotatorSets;
             Rotator* rotatorSet = currentRotationSet < TotalRotatorSets ? RotatorSets[currentRotationSet] : NoRotators;
             for ( size_t rotatorIndex=0; rotatorIndex<8; rotatorIndex++ )
             {

@@ -116,7 +116,7 @@ BOOL NewMap::DlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 editHeight.SetText("128");
 
                 listInitialTileset.FindThis(hWnd, IDC_LIST_TILESET);
-                listInitialTileset.AddStrings(tilesetNames);
+                listInitialTileset.AddStrings(chkd.scData->terrain.tilesetDisplayNames);
                 listInitialTileset.SetCurSel(0);
                 listInitialTileset.setDefaultFont(false);
 

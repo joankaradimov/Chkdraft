@@ -231,7 +231,7 @@ void Graphics::DrawTerrain(ChkdBitmap & bitmap)
         }
     }
 
-    if ( tileset % Sc::Terrain::NumTilesets == Sc::Terrain::Tileset::SpacePlatform )
+    if ( Sc::Terrain::baseOf(chkd.scData->terrain.indexOf(tileset)) == Sc::Terrain::Tileset::SpacePlatform )
         DrawStars(bitmap);
 }
 

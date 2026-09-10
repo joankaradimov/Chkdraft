@@ -356,8 +356,3 @@ const std::vector<std::string> triggerScores =
     "Kills and Razings",
     "Custom"
 };
-
-const std::vector<std::string> tilesetNames =
-{
-    "Badlands", "Space Platform", "Installation", "Ash World", "Jungle World", "Desert World", "Ice World", "Twilight World"
-};

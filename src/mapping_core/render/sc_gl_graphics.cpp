@@ -637,10 +637,8 @@ void GraphicsData::loadTileMasks(ArchiveCluster & archiveCluster, std::filesyste
     }
 }
 
-void GraphicsData::Data::Skin::Tileset::load(ArchiveCluster & archiveCluster, const LoadSettings & loadSettings, ByteBuffer & fileData)
+void GraphicsData::Data::Skin::Tileset::load(ArchiveCluster & archiveCluster, const std::string & tilesetName, const LoadSettings & loadSettings, ByteBuffer & fileData)
 {
-    constexpr std::string_view tilesetNames[8] { "badlands", "platform", "install", "ashworld", "jungle", "desert", "ice", "twilight" };
-    std::string tilesetName = std::string(tilesetNames[size_t(loadSettings.tileset) % size_t(Sc::Terrain::NumTilesets)]);
     auto visualQuality = loadSettings.visualQuality;
     auto skinName = ::Skin::skinNames[size_t(loadSettings.skinId)];
     std::filesystem::path tilesetPath {};
@@ -907,7 +905,7 @@ void calculateAlphaEffectPalette(const auto & srcEffectRemapper, const auto & sr
 
 void GraphicsData::Data::Skin::loadClassicTiles(Sc::Data & scData, const LoadSettings & loadSettings)
 {
-    auto tilesetIndex = size_t(loadSettings.tileset) % size_t(Sc::Terrain::NumTilesets);
+    auto tilesetIndex = size_t(loadSettings.tileset);
     auto & tilesetGraphics = this->tiles[tilesetIndex];
     tilesetGraphics = std::make_shared<GraphicsData::Data::Skin::Tileset>();
     // Populate tileTextureData
@@ -1028,13 +1026,13 @@ void GraphicsData::Data::Skin::loadClassicTiles(Sc::Data & scData, const LoadSet
     }
 }
 
-void GraphicsData::Data::Skin::loadTiles(ArchiveCluster & archiveCluster, const LoadSettings & loadSettings, ByteBuffer & fileData)
+void GraphicsData::Data::Skin::loadTiles(Sc::Data & scData, ArchiveCluster & archiveCluster, const LoadSettings & loadSettings, ByteBuffer & fileData)
 {
-    auto tilesetIndex = size_t(loadSettings.tileset) % size_t(Sc::Terrain::NumTilesets);
+    auto tilesetIndex = size_t(loadSettings.tileset);
     if ( tiles[tilesetIndex] == nullptr )
     {
         tiles[tilesetIndex] = std::make_shared<Tileset>();
-        tiles[tilesetIndex]->load(archiveCluster, loadSettings, fileData);
+        tiles[tilesetIndex]->load(archiveCluster, scData.terrain.tilesetNames[tilesetIndex], loadSettings, fileData);
     }
 }
 
@@ -1354,7 +1352,7 @@ void GraphicsData::unload(const LoadSettings & loadSettings)
                     if ( skin.spk != nullptr && skin.spk.use_count() == 1 ) // Spk unused
                         skin.spk = nullptr;
 
-                    auto tilesetIndex = size_t(loadSettings.tileset) % Sc::Terrain::NumTilesets;
+                    auto tilesetIndex = size_t(loadSettings.tileset);
                     if ( skin.tiles[tilesetIndex] != nullptr && skin.tiles[tilesetIndex].use_count() == 1 ) // Tiles unused
                         skin.tiles[tilesetIndex] = nullptr;
 
@@ -1403,7 +1401,7 @@ bool GraphicsData::isLoaded(const LoadSettings & loadSettings)
     if ( loadSettings.showStars() && skin.spk == nullptr )
         return false;
 
-    auto tilesetIndex = size_t(loadSettings.tileset) % Sc::Terrain::NumTilesets;
+    auto tilesetIndex = size_t(loadSettings.tileset);
     if ( skin.tiles[tilesetIndex] == nullptr )
         return false;
 
@@ -1447,11 +1445,11 @@ std::shared_ptr<GraphicsData::RenderData> GraphicsData::load(Sc::Data & scData, 
             skin.loadClassicStars(scData);
     }
     
-    auto tilesetIndex = size_t(loadSettings.tileset) % Sc::Terrain::NumTilesets;
+    auto tilesetIndex = size_t(loadSettings.tileset);
     if ( skin.tiles[tilesetIndex] == nullptr )
     {
         if ( isRemastered )
-            skin.loadTiles(archiveCluster, loadSettings, fileData);
+            skin.loadTiles(scData, archiveCluster, loadSettings, fileData);
         else
             skin.loadClassicTiles(scData, loadSettings);
     }
@@ -1470,7 +1468,7 @@ std::shared_ptr<GraphicsData::RenderData> GraphicsData::load(Sc::Data & scData, 
     renderData->skin = data.skin[skinIndex];
     renderData->shaders = this->shaders;
     renderData->spk = skin.spk;
-    renderData->tiles = skin.tiles[loadSettings.tileset];
+    renderData->tiles = skin.tiles[size_t(loadSettings.tileset)];
     renderData->images = skin.images;
     renderData->classicImages = skin.classicImages;
     renderData->waterNormal[0] = data.waterNormal[0];
@@ -1880,7 +1878,7 @@ void MapGraphics::load(GraphicsData & scrDat, const GraphicsData::LoadSettings &
 
     this->renderDat = nullptr;
     this->loadSettings = loadSettings;
-    this->loadSettings.tileset = Sc::Terrain::Tileset(map.getTileset() % Sc::Terrain::NumTilesets);
+    this->loadSettings.tileset = Sc::Terrain::Tileset(scData.terrain.indexOf(map.getTileset()));
     this->renderDat = scrDat.load(scData, archiveCluster, this->loadSettings, fileData);
     
     if ( skinChanged )
@@ -2338,10 +2336,10 @@ void MapGraphics::drawTileVertices(Grp & tilesetGrp, s32 width, s32 height, cons
     if ( tileVertices.vertices.empty() )
         return;
 
-    auto tilesetIndex = Sc::Terrain::Tileset(map.getTileset() % Sc::Terrain::NumTilesets);
+    auto baseTileset = Sc::Terrain::baseOf(scData.terrain.indexOf(map.getTileset()));
     bool drawHdWater = loadSettings.visualQuality > VisualQuality::SD && isBaseTerrain &&
-        (tilesetIndex == Sc::Terrain::Tileset::Badlands || tilesetIndex == Sc::Terrain::Tileset::Jungle ||
-            tilesetIndex == Sc::Terrain::Tileset::Arctic || tilesetIndex == Sc::Terrain::Tileset::Twilight);
+        (baseTileset == Sc::Terrain::Tileset::Badlands || baseTileset == Sc::Terrain::Tileset::Jungle ||
+            baseTileset == Sc::Terrain::Tileset::Arctic || baseTileset == Sc::Terrain::Tileset::Twilight);
 
     if ( drawHdWater )
     {
@@ -3479,7 +3477,7 @@ bool MapGraphics::updateGraphics(u64 msSinceLastUpdate)
     auto & tilesetGrp = renderDat->tiles->tilesetGrp;
     if ( tilesetGrp.palette )
     {
-        if ( colorCycler.cycleColors(map.getTileset(), tilesetGrp.palette.value()) )
+        if ( colorCycler.cycleColors(Sc::Terrain::baseOf(scData.terrain.indexOf(map.getTileset())), tilesetGrp.palette.value()) )
         {
             tilesetGrp.palette->update();
             updated = true;

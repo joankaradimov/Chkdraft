@@ -62,7 +62,7 @@ bool Renderer::loadSkinAndTileSet(RenderSkin skin, ScMap & map)
     GraphicsData::LoadSettings loadSettings {
         .visualQuality = VisualQuality::SD,
         .skinId = ::Skin::Id::Classic,
-        .tileset = Sc::Terrain::Tileset(int(map->tileset) % int(Sc::Terrain::NumTilesets)),
+        .tileset = Sc::Terrain::Tileset(scData.terrain.indexOf(map->tileset)),
         .forceShowStars = false
     };
     switch ( skin )

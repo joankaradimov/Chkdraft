@@ -76,8 +76,6 @@ extern const std::vector<std::string> briefingTriggerActions;
 
 extern const std::vector<std::string> triggerScores;
 
-extern const std::vector<std::string> tilesetNames;
-
 
 /** Used for identifying layers, should be equivilant
     to the zero-based position in the layer combobox */

@@ -17,7 +17,7 @@ void DoodadTree::UpdateDoodadTree()
     EmptySubTree(hDoodadRoot);
     if ( CM != nullptr )
     {
-        auto tilesetIndex = CM->getTileset() % Sc::Terrain::NumTilesets;
+        auto tilesetIndex = chkd.scData->terrain.indexOf(CM->getTileset());
         auto tileset = chkd.scData->terrain.get(Sc::Terrain::Tileset(tilesetIndex));
         for ( const auto & doodadGroup : tileset.doodadGroups )
         {

@@ -105,7 +105,7 @@ std::unique_ptr<ScMap> GfxUtil::createMap(Sc::Terrain::Tileset tileset, u16 widt
     try {
         if ( terrainTypeIndex == std::numeric_limits<size_t>::max() )
         {
-            switch ( Sc::Terrain::Tileset(size_t(tileset) % Sc::Terrain::NumTilesets) )
+            switch ( Sc::Terrain::baseOf(scData->terrain.indexOf(tileset)) )
             {
             case Sc::Terrain::Tileset::Badlands: terrainTypeIndex = Sc::Isom::Brush::Badlands::Default; break;
             case Sc::Terrain::Tileset::SpacePlatform: terrainTypeIndex = Sc::Isom::Brush::Space::Default; break;
