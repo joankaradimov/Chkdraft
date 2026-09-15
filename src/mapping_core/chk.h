@@ -2070,6 +2070,7 @@ namespace Chk {
         Span<Sc::Isom::ShapeLinks> isomLinks {};
         Span<Sc::Isom::TerrainTypeInfo> terrainTypes {};
         Span<uint16_t> terrainTypeMap {};
+        uint16_t firstTransitionIsomValue = 0; // The isomLinks before it are the plains, which the last search for a placement covers
         const std::unordered_map<uint32_t, std::vector<uint16_t>>* hashToTileGroup;
 
         inline IsomCache(Sc::Terrain::Tileset tileset, size_t tileWidth, size_t tileHeight, const Sc::Terrain::Tiles & tilesetData) :
@@ -2079,6 +2080,7 @@ namespace Chk {
             isomLinks(&tilesetData.isomLinks[0], tilesetData.isomLinks.size()),
             terrainTypes(&tilesetData.terrainTypes[0], tilesetData.terrainTypes.size()),
             terrainTypeMap(&tilesetData.terrainTypeMap[0], tilesetData.terrainTypeMap.size()),
+            firstTransitionIsomValue(tilesetData.firstTransitionIsomValue),
             hashToTileGroup(&tilesetData.hashToTileGroup)
         {
             resetChangedArea();

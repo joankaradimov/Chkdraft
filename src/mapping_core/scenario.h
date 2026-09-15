@@ -650,6 +650,7 @@ private:
     void loadNeighborInfo(Chk::IsomDiamond isomDiamond, IsomNeighbors & neighbors, Span<Sc::Isom::ShapeLinks> isomLinks) const;
     uint16_t countNeighborMatches(const Sc::Isom::ShapeLinks & shapeLinks, IsomNeighbors & neighbors, Span<Sc::Isom::ShapeLinks> isomLinks) const;
     void searchForBestMatch(uint16_t startingTerrainType, IsomNeighbors & neighbors, Chk::IsomCache & cache) const;
+    void searchPlainsForBestMatch(IsomNeighbors & neighbors, Chk::IsomCache & cache) const;
     std::optional<uint16_t> findBestMatchIsomValue(Chk::IsomDiamond isomDiamond, Chk::IsomCache & cache) const;
     void radiallyUpdateTerrain(std::deque<Chk::IsomDiamond> & diamondsToUpdate, Chk::IsomCache & cache);
 

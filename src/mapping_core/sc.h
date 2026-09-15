@@ -4115,13 +4115,32 @@ namespace Sc {
             std::vector<Isom::TerrainTypeInfo> brushes {};
             Isom::TerrainTypeInfo defaultBrush {};
 
-            void populateTerrainTypeMap(size_t baseTileset);
+            // Where the transitions' 14-entry blocks begin in the isomLink table. The entries before it are the plains
+            // and the placeholders between them, which the last search for an ISOM placement covers so that a diamond
+            // can settle back onto plain ground.
+            uint16_t firstTransitionIsomValue = 0;
 
-            void generateIsomLinks();
+            // Expands rows in the compiled tables' format - a type, the types an ISOM search may step to from it, a
+            // zero, and a zero after the last row - into the square of search start types
+            void populateTerrainTypeMap(Span<uint16_t> compressedTerrainTypeMap);
 
-            void loadTerrainTypes(size_t baseTileset, ArchiveCluster & archiveCluster, const std::string & tilesetName);
+            // The compiled table for one of the eight shipped tilesets, or for a tileset past them a table read off
+            // its cv5 by deriveTerrainTypes, either way with the names tileset\<name>.tbl gives
+            void loadTerrainTypes(size_t tilesetIndex, ArchiveCluster & archiveCluster, const std::string & tilesetName);
 
-            void loadIsom(size_t baseTileset);
+            // A plain is a terrain type whose tile groups carry one soft link and no hard link, a transition one whose
+            // soft links name two plains, and the rest get no brush. Plains take ISOM values 1 to P in type order and
+            // their soft link as link id, the null type P+1 as in the compiled tables, and transitions 14 entries each
+            // from P+2. Fills terrainTypes, terrainTypeNames and the rows of the terrain type map.
+            void deriveTerrainTypes(const std::string & tilesetName, std::vector<uint16_t> & compressedTerrainTypeMap);
+
+            // The tile groups of each terrain type, from the cv5; a group typed past the table is left out and logged
+            std::vector<std::vector<uint16_t>> tileGroupsByTerrainType(size_t tilesetIndex, const std::string & tilesetName) const;
+
+            void generateIsomLinks(size_t tilesetIndex, const std::string & tilesetName, const std::vector<std::vector<uint16_t>> & terrainTypeTileGroups);
+
+            // Takes the loaded index and name so that what the cv5 lacks can be reported against the table in use
+            void loadIsom(size_t tilesetIndex, const std::string & tilesetName);
 
             bool load(size_t tilesetIndex, ArchiveCluster & archiveCluster, const std::string & tilesetName, Sc::TblFilePtr statTxt,
                 std::array<u16, Sprite::TotalSprites> & doodadSpriteFlags, std::array<u16, Unit::TotalTypes> & doodadUnitFlags);

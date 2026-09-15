@@ -7928,16 +7928,26 @@ uint16_t Scenario::countNeighborMatches(const Sc::Isom::ShapeLinks & shapeLinks,
 
 void Scenario::searchForBestMatch(uint16_t startingTerrainType, IsomNeighbors & neighbors, Chk::IsomCache & cache) const
 {
-    bool searchUntilHigherTerrainType = startingTerrainType == cache.terrainTypes.size()/2+1; // The final search always searches until end or higher types
     bool searchUntilEnd = startingTerrainType == 0; // If startingTerrainType is zero, the whole table after start must be searched
 
     uint16_t isomValue = cache.getTerrainTypeIsomValue(startingTerrainType);
     for ( ; isomValue < cache.isomLinks.size(); ++isomValue )
     {
         auto terrainType = cache.isomLinks[isomValue].terrainType;
-        if ( !searchUntilEnd && terrainType != startingTerrainType && (!searchUntilHigherTerrainType || terrainType > startingTerrainType) )
+        if ( !searchUntilEnd && terrainType != startingTerrainType )
             break; // Do not search the rest of the table
 
+        auto matchCount = countNeighborMatches(cache.isomLinks[isomValue], neighbors, cache.isomLinks);
+        if ( matchCount > neighbors.bestMatch.matchCount )
+            neighbors.bestMatch = {isomValue, matchCount};
+    }
+}
+
+void Scenario::searchPlainsForBestMatch(IsomNeighbors & neighbors, Chk::IsomCache & cache) const
+{
+    // The final search covers the plains, the entries before the transitions' blocks, so that a diamond can settle back onto plain ground
+    for ( uint16_t isomValue = 0; isomValue < cache.firstTransitionIsomValue && isomValue < cache.isomLinks.size(); ++isomValue )
+    {
         auto matchCount = countNeighborMatches(cache.isomLinks[isomValue], neighbors, cache.isomLinks);
         if ( matchCount > neighbors.bestMatch.matchCount )
             neighbors.bestMatch = {isomValue, matchCount};
@@ -7957,7 +7967,7 @@ std::optional<uint16_t> Scenario::findBestMatchIsomValue(Chk::IsomDiamond isomDi
         searchForBestMatch(mappedTerrainType, neighbors, cache);
     }
     searchForBestMatch(uint16_t(neighbors.maxModifiedOfFour), neighbors, cache);
-    searchForBestMatch(uint16_t(cache.terrainTypes.size()/2 + 1), neighbors, cache);
+    searchPlainsForBestMatch(neighbors, cache);
 
     if ( neighbors.bestMatch.isomValue == prevIsomValue ) // This ISOM diamond was already the best possible value
         return std::nullopt;

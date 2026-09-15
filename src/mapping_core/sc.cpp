@@ -1773,10 +1773,8 @@ static void overrideNames(const Sc::TblFile & tbl, std::vector<std::string> & na
     }
 }
 
-void Sc::Terrain::Tiles::populateTerrainTypeMap(size_t baseTileset)
+void Sc::Terrain::Tiles::populateTerrainTypeMap(Span<uint16_t> compressedTerrainTypeMap)
 {
-    const auto & compressedTerrainTypeMap = Isom::compressedTerrainTypeMaps[baseTileset];
-
     size_t totalTerrainTypes = terrainTypes.size();
     terrainTypeMap.assign(totalTerrainTypes*totalTerrainTypes, uint16_t(0));
     std::vector<uint16_t> tempTypeMap(totalTerrainTypes*totalTerrainTypes, 0);
@@ -1817,29 +1815,45 @@ void Sc::Terrain::Tiles::populateTerrainTypeMap(size_t baseTileset)
     }
 }
 
-void Sc::Terrain::Tiles::generateIsomLinks()
+std::vector<std::vector<uint16_t>> Sc::Terrain::Tiles::tileGroupsByTerrainType(size_t tilesetIndex, const std::string & tilesetName) const
 {
     size_t totalTileGroups = std::min(Sc::Terrain::Cv5Dat::MaxTileGroups, tileGroups.size());
-    Span<TileGroup> tilesetCv5s((TileGroup*)&tileGroups[0], totalTileGroups);
-
     std::vector<std::vector<uint16_t>> terrainTypeTileGroups(terrainTypes.size(), std::vector<uint16_t>{});
+    size_t groupsPastTable = 0;
     for ( uint16_t i=0; i<totalTileGroups; i +=2 )
     {
-        if ( tilesetCv5s[i].terrainType > 0 )
-            terrainTypeTileGroups[tilesetCv5s[i].terrainType].push_back(i);
+        if ( tileGroups[i].terrainType >= terrainTypes.size() )
+            ++groupsPastTable;
+        else if ( tileGroups[i].terrainType > 0 )
+            terrainTypeTileGroups[tileGroups[i].terrainType].push_back(i);
     }
 
+    if ( groupsPastTable > 0 )
+    {
+        logger.error() << "Tileset " << tilesetName << " has " << groupsPastTable << " tile groups typed past the " << terrainTypes.size()
+            << " terrain types of " << Terrain::DefaultTilesetNames[Terrain::baseOf(tilesetIndex)]
+            << ", whose terrain tables it uses as the tileset at index " << tilesetIndex << "; they are left out of the ISOM tables" << std::endl;
+    }
+    return terrainTypeTileGroups;
+}
+
+void Sc::Terrain::Tiles::generateIsomLinks(size_t tilesetIndex, const std::string & tilesetName, const std::vector<std::vector<uint16_t>> & terrainTypeTileGroups)
+{
+    size_t totalTileGroups = std::min(Sc::Terrain::Cv5Dat::MaxTileGroups, tileGroups.size());
+    if ( totalTileGroups == 0 )
+        return;
+
+    Span<TileGroup> tilesetCv5s((TileGroup*)&tileGroups[0], totalTileGroups);
+
+    // A plain is a type with a place in the brush palette, a transition any other type with an ISOM value; the null
+    // type 0 has an ISOM value but is neither
     std::vector<Isom::TerrainTypeInfo> solidBrushes {};
     std::vector<Isom::TerrainTypeInfo> otherTerrainTypes {};
-    size_t i = 1;
-    for ( ; i<=terrainTypes.size()/2; ++i )
+    for ( size_t i=1; i<terrainTypes.size(); ++i )
     {
-        if ( terrainTypes[i].isomValue != 0 )
+        if ( terrainTypes[i].brushSortOrder >= 0 )
             solidBrushes.push_back(terrainTypes[i]);
-    }
-    for ( ; i<terrainTypes.size(); ++i )
-    {
-        if ( terrainTypes[i].isomValue != 0 )
+        else if ( terrainTypes[i].isomValue != 0 )
             otherTerrainTypes.push_back({uint16_t(i), terrainTypes[i].isomValue});
     }
     std::sort(solidBrushes.begin(), solidBrushes.end(), [](const Isom::TerrainTypeInfo & l, const Isom::TerrainTypeInfo & r) {
@@ -1849,10 +1863,23 @@ void Sc::Terrain::Tiles::generateIsomLinks()
         return l.isomValue < r.isomValue;
     });
 
+    size_t missingBrushes = 0;
     for ( const auto & solidBrush : solidBrushes )
     {
         while ( isomLinks.size() < size_t(solidBrush.isomValue) )
             isomLinks.push_back(Isom::ShapeLinks{});
+
+        if ( terrainTypeTileGroups[solidBrush.index].empty() )
+        {
+            // A plain the tileset does not have: a terrain removed from it, or a tileset at an index whose base is not
+            // the one it was built from. Its entry stays empty, which the ISOM code reads as no terrain, and loadIsom
+            // keeps it out of the brushes.
+            ++missingBrushes;
+            logger.warn() << "Tileset " << tilesetName << " has no tile groups of terrain type " << solidBrush.index << " (" << solidBrush.name
+                << "), a brush of " << Terrain::DefaultTilesetNames[Terrain::baseOf(tilesetIndex)] << std::endl;
+            isomLinks.push_back(Isom::ShapeLinks{});
+            continue;
+        }
 
         auto tileGroup = terrainTypeTileGroups[solidBrush.index][0];
         const auto & links = tilesetCv5s[tileGroup].links;
@@ -1866,7 +1893,17 @@ void Sc::Terrain::Tiles::generateIsomLinks()
         );
     }
 
+    if ( missingBrushes > 0 && missingBrushes == solidBrushes.size() )
+    {
+        logger.error() << "Tileset " << tilesetName << " has none of the plains of " << Terrain::DefaultTilesetNames[Terrain::baseOf(tilesetIndex)]
+            << ", whose compiled terrain table it uses as the tileset at index " << tilesetIndex
+            << "; a tileset with other terrains belongs past the eighth index in arr\\tilesets.tbl, where its table is read off its cv5" << std::endl;
+    }
+
     size_t totalSolidBrushEntries = isomLinks.size();
+    if ( otherTerrainTypes.empty() )
+        return;
+
     while ( isomLinks.size() < otherTerrainTypes[0].isomValue )
         isomLinks.push_back(Isom::ShapeLinks{});
 
@@ -1927,15 +1964,155 @@ void Sc::Terrain::Tiles::generateIsomLinks()
     }
 }
 
-void Sc::Terrain::Tiles::loadTerrainTypes(size_t baseTileset, ArchiveCluster & archiveCluster, const std::string & tilesetName)
+void Sc::Terrain::Tiles::deriveTerrainTypes(const std::string & tilesetName, std::vector<uint16_t> & compressedTerrainTypeMap)
 {
-    const auto & terrainTypeInfo = Isom::tilesetTerrainTypes[baseTileset];
-    terrainTypes.assign(terrainTypeInfo.begin(), terrainTypeInfo.end());
+    // The soft links each terrain type carries, and whether it carries hard links; types 0 and 1 are no terrain and doodads
+    size_t totalTypes = 2;
+    for ( const auto & tileGroup : tileGroups )
+        totalTypes = std::max(totalTypes, size_t(tileGroup.terrainType) + 1);
 
+    std::vector<std::set<uint16_t>> softLinks(totalTypes);
+    std::vector<bool> hasHardLinks(totalTypes, false);
+    for ( const auto & tileGroup : tileGroups )
+    {
+        if ( tileGroup.terrainType < 2 )
+            continue;
+
+        for ( Isom::Link link : {tileGroup.links.left, tileGroup.links.top, tileGroup.links.right, tileGroup.links.bottom} )
+        {
+            if ( link == Isom::Link::None )
+                continue;
+            else if ( link <= Isom::Link::SoftLinks )
+                softLinks[tileGroup.terrainType].insert(uint16_t(link));
+            else
+                hasHardLinks[tileGroup.terrainType] = true;
+        }
+    }
+
+    terrainTypes.assign(totalTypes, Isom::TerrainTypeInfo{});
+    for ( size_t i=0; i<totalTypes; ++i )
+        terrainTypes[i].index = uint16_t(i);
+
+    std::vector<uint16_t> plainOfLink(size_t(Isom::Link::SoftLinks) + 1, 0);
+    std::vector<uint16_t> plains {};
+    for ( uint16_t type=2; type<totalTypes; ++type )
+    {
+        if ( softLinks[type].size() == 1 && !hasHardLinks[type] )
+        {
+            uint16_t link = *softLinks[type].begin();
+            if ( plainOfLink[link] != 0 )
+            {
+                logger.error() << "Tileset " << tilesetName << " terrain types " << plainOfLink[link] << " and " << type
+                    << " both carry soft link " << link << ", so only the first is taken for a plain" << std::endl;
+            }
+            else
+            {
+                plainOfLink[link] = type;
+                plains.push_back(type);
+            }
+        }
+    }
+
+    std::vector<std::pair<uint16_t, uint16_t>> between(totalTypes, {0, 0});
+    std::vector<uint16_t> transitions {};
+    for ( uint16_t type=2; type<totalTypes; ++type )
+    {
+        if ( std::find(plains.begin(), plains.end(), type) != plains.end() )
+            continue;
+
+        std::set<uint16_t> named {};
+        for ( auto link : softLinks[type] )
+        {
+            if ( plainOfLink[link] != 0 )
+                named.insert(plainOfLink[link]);
+        }
+
+        if ( named.size() == 2 )
+        {
+            between[type] = {*named.begin(), *std::next(named.begin())};
+            transitions.push_back(type);
+        }
+        else if ( !softLinks[type].empty() || hasHardLinks[type] )
+        {
+            logger.warn() << "Tileset " << tilesetName << " terrain type " << type << " names " << named.size()
+                << " plains rather than two, so it is neither a plain nor a transition and gets no brush" << std::endl;
+        }
+    }
+
+    uint16_t isomValue = 1;
+    int16_t brushSortOrder = 0;
+    for ( auto plain : plains )
+    {
+        terrainTypes[plain].isomValue = isomValue++;
+        terrainTypes[plain].brushSortOrder = brushSortOrder++;
+        terrainTypes[plain].linkId = Isom::LinkId(*softLinks[plain].begin());
+    }
+    terrainTypes[0].isomValue = isomValue++;
+    for ( auto transition : transitions )
+    {
+        terrainTypes[transition].isomValue = isomValue;
+        isomValue += 14;
+    }
+
+    for ( size_t i=0; i<totalTypes; ++i )
+        terrainTypeNames->push_back(i < 2 ? std::string() : "Type " + std::to_string(i));
+
+    // A plain's row lists its transitions, a transition's its two plains and then the other transitions of each
+    std::vector<std::vector<uint16_t>> transitionsOf(totalTypes);
+    for ( auto transition : transitions )
+    {
+        transitionsOf[between[transition].first].push_back(transition);
+        transitionsOf[between[transition].second].push_back(transition);
+    }
+    for ( auto plain : plains )
+    {
+        compressedTerrainTypeMap.push_back(plain);
+        for ( auto transition : transitionsOf[plain] )
+            compressedTerrainTypeMap.push_back(transition);
+        compressedTerrainTypeMap.push_back(0);
+    }
+    for ( auto transition : transitions )
+    {
+        auto [first, second] = between[transition];
+        compressedTerrainTypeMap.push_back(transition);
+        compressedTerrainTypeMap.push_back(first);
+        compressedTerrainTypeMap.push_back(second);
+        for ( auto other : transitionsOf[first] )
+        {
+            if ( other != transition )
+                compressedTerrainTypeMap.push_back(other);
+        }
+        for ( auto other : transitionsOf[second] )
+        {
+            if ( other != transition && std::find(transitionsOf[first].begin(), transitionsOf[first].end(), other) == transitionsOf[first].end() )
+                compressedTerrainTypeMap.push_back(other);
+        }
+        compressedTerrainTypeMap.push_back(0);
+    }
+    compressedTerrainTypeMap.push_back(0);
+
+    logger.info() << "Tileset " << tilesetName << ": " << plains.size() << " plains and " << transitions.size()
+        << " transitions read off its cv5" << std::endl;
+}
+
+void Sc::Terrain::Tiles::loadTerrainTypes(size_t tilesetIndex, ArchiveCluster & archiveCluster, const std::string & tilesetName)
+{
     terrainTypeNames = std::make_shared<std::vector<std::string>>();
-    terrainTypeNames->reserve(terrainTypes.size());
-    for ( const auto & terrainType : terrainTypes )
-        terrainTypeNames->emplace_back(terrainType.name);
+    if ( tilesetIndex < Terrain::NumBaseTilesets )
+    {
+        const auto & terrainTypeInfo = Isom::tilesetTerrainTypes[tilesetIndex];
+        terrainTypes.assign(terrainTypeInfo.begin(), terrainTypeInfo.end());
+        for ( const auto & terrainType : terrainTypes )
+            terrainTypeNames->emplace_back(terrainType.name);
+
+        populateTerrainTypeMap(Isom::compressedTerrainTypeMaps[tilesetIndex]);
+    }
+    else
+    {
+        std::vector<uint16_t> compressedTerrainTypeMap {};
+        deriveTerrainTypes(tilesetName, compressedTerrainTypeMap);
+        populateTerrainTypeMap(Span<uint16_t>(compressedTerrainTypeMap.data(), compressedTerrainTypeMap.size()));
+    }
 
     // String n of tileset\<name>.tbl names cv5 terrain type n; string 0 is no string, as terrain type 0 is no terrain.
     // The file is optional, so a miss is not logged.
@@ -1947,10 +2124,8 @@ void Sc::Terrain::Tiles::loadTerrainTypes(size_t baseTileset, ArchiveCluster & a
         terrainTypes[i].name = (*terrainTypeNames)[i];
 }
 
-void Sc::Terrain::Tiles::loadIsom(size_t baseTileset)
+void Sc::Terrain::Tiles::loadIsom(size_t tilesetIndex, const std::string & tilesetName)
 {
-    populateTerrainTypeMap(baseTileset);
-
     for ( size_t i=0; i<tileGroups.size(); i+=2 )
     {
         const auto & groupLinks = tileGroups[i].links;
@@ -1970,17 +2145,31 @@ void Sc::Terrain::Tiles::loadIsom(size_t baseTileset)
             hashToTileGroup.insert(std::make_pair(tileGroupHash, std::vector<uint16_t>{uint16_t(i)}));
     }
 
-    generateIsomLinks();
+    auto terrainTypeTileGroups = tileGroupsByTerrainType(tilesetIndex, tilesetName);
+    generateIsomLinks(tilesetIndex, tilesetName, terrainTypeTileGroups);
+    if ( isomLinks.empty() ) // A tileset with no terrain at all still needs the entry the null type refers to
+        isomLinks.push_back(Isom::ShapeLinks{});
 
+    firstTransitionIsomValue = uint16_t(isomLinks.size());
+    for ( size_t i=1; i<terrainTypes.size(); ++i )
+    {
+        if ( terrainTypes[i].brushSortOrder < 0 && terrainTypes[i].isomValue != 0 )
+            firstTransitionIsomValue = std::min(firstTransitionIsomValue, terrainTypes[i].isomValue);
+    }
+
+    // A brush the cv5 has no tile groups for cannot be painted, so it is not offered
     for ( const auto & terrainType : terrainTypes )
     {
-        if ( terrainType.brushSortOrder >= 0 )
+        if ( terrainType.brushSortOrder >= 0 && !terrainTypeTileGroups[terrainType.index].empty() )
             brushes.push_back(terrainType);
     }
     std::sort(brushes.begin(), brushes.end(), [&](const Isom::TerrainTypeInfo & l, const Isom::TerrainTypeInfo & r) {
         return l.brushSortOrder < r.brushSortOrder;
     });
-    defaultBrush = terrainTypes[Isom::defaultBrushIndex[baseTileset]];
+    if ( tilesetIndex < Terrain::NumBaseTilesets )
+        defaultBrush = terrainTypes[Isom::defaultBrushIndex[tilesetIndex]];
+    else
+        defaultBrush = brushes.empty() ? Isom::TerrainTypeInfo{} : brushes.front();
 }
 
 bool Sc::Terrain::Tiles::load(size_t tilesetIndex, ArchiveCluster & archiveCluster, const std::string & tilesetName, Sc::TblFilePtr statTxt,
@@ -2151,8 +2340,8 @@ bool Sc::Terrain::Tiles::load(size_t tilesetIndex, ArchiveCluster & archiveClust
                 return l.name < r.name;
             });
 
-            loadTerrainTypes(Terrain::baseOf(tilesetIndex), archiveCluster, tilesetName);
-            loadIsom(Terrain::baseOf(tilesetIndex));
+            loadTerrainTypes(tilesetIndex, archiveCluster, tilesetName);
+            loadIsom(tilesetIndex, tilesetName);
 
             loaded = true;
             return remappingFilesLoaded;
