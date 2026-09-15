@@ -3865,7 +3865,20 @@ namespace Sc {
 
         size_t numTilesets() const { return tilesets.size(); }
 
-        size_t indexOf(size_t tileset) const { return tileset % numTilesets(); }
+        // The index of the tileset a map's tileset value selects: the value modulo the number of tilesets, as the game
+        // takes it modulo eight. A slot arr\tilesets.tbl left empty, or whose files did not load, stands in for
+        // nothing, so the map is shown with the shipped tileset at that index modulo eight.
+        size_t indexOf(size_t tileset) const
+        {
+            size_t index = tileset % numTilesets();
+            return tilesets[index].loaded ? index : index % NumBaseTilesets;
+        }
+
+        // The indexes of the tilesets that loaded, in order, and their display names: what a list offers, an empty
+        // slot left out. loadedPositionOf gives a tileset's row in such a list, or -1 for an empty slot.
+        std::vector<size_t> loadedTilesets() const;
+        std::vector<std::string> loadedTilesetDisplayNames() const;
+        int loadedPositionOf(size_t tilesetIndex) const;
 
         static constexpr Tileset baseOf(size_t tilesetIndex) { return Tileset(tilesetIndex % NumBaseTilesets); }
 
@@ -4089,6 +4102,8 @@ namespace Sc {
 
             std::vector<DoodadGroup> doodadGroups {};
             std::vector<DoodadPlacibility> doodadPlacibility {};
+
+            bool loaded = false; // Whether load() read the tileset's files, so that it can be offered and drawn
 
             std::vector<uint16_t> terrainTypeMap {};
             std::unordered_map<uint32_t, std::vector<uint16_t>> hashToTileGroup {};

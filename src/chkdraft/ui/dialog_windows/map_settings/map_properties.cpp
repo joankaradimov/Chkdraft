@@ -103,7 +103,7 @@ bool MapPropertiesWindow::CreateThis(HWND hParent, u64 windowId)
         std::string sCurrHeight(std::to_string(currHeight));
 
         textMapTileset.CreateThis(hMapProperties, 5, 185, 100, 20, "Map Tileset", 0);
-        dropMapTileset.CreateThis(hMapProperties, 5, 205, 185, 400, false, false, Id::CB_MAPTILESET, chkd.scData->terrain.tilesetDisplayNames);
+        dropMapTileset.CreateThis(hMapProperties, 5, 205, 185, 400, false, false, Id::CB_MAPTILESET, chkd.scData->terrain.loadedTilesetDisplayNames());
         textNewMapTerrain.CreateThis(hMapProperties, 195, 185, 100, 20, "[New] Terrain", 0);
 
         const auto & tileset = chkd.scData->terrain.get(Sc::Terrain::Tileset(currTileset));
@@ -194,7 +194,7 @@ void MapPropertiesWindow::RefreshWindow()
 
         possibleTitleUpdate = false;
         possibleDescriptionUpdate = false;
-        dropMapTileset.SetSel(tilesetIndex);
+        dropMapTileset.SetSel(chkd.scData->terrain.loadedPositionOf(tilesetIndex));
         dropMapTileset.ClearEditSel();
 
         std::vector<std::string> initTerrains {};
@@ -280,7 +280,10 @@ LRESULT MapPropertiesWindow::Command(HWND hWnd, WPARAM wParam, LPARAM lParam)
     {
         if ( HIWORD(wParam) == BN_CLICKED )
         {
-            Sc::Terrain::Tileset newTileset = (Sc::Terrain::Tileset)SendMessage(GetDlgItem(hWnd, Id::CB_MAPTILESET), CB_GETCURSEL, 0, 0);
+            LRESULT listPosition = SendMessage(GetDlgItem(hWnd, Id::CB_MAPTILESET), CB_GETCURSEL, 0, 0);
+            auto loadedTilesets = chkd.scData->terrain.loadedTilesets();
+            Sc::Terrain::Tileset newTileset = listPosition != CB_ERR && size_t(listPosition) < loadedTilesets.size() ?
+                Sc::Terrain::Tileset(loadedTilesets[listPosition]) : CM->getTileset();
             size_t newMapTerrain = dropNewMapTerrain.GetSelData();
             CM->setTileset(newTileset);
             u16 newWidth, newHeight;
@@ -297,12 +300,13 @@ LRESULT MapPropertiesWindow::Command(HWND hWnd, WPARAM wParam, LPARAM lParam)
         if ( HIWORD(wParam) == CBN_SELCHANGE )
         {
             HWND hMapTileset = GetDlgItem(hWnd, Id::CB_MAPTILESET), hMapNewTerrain = GetDlgItem(hWnd, Id::CB_NEWMAPTERRAIN);
-            LRESULT currTileset = SendMessage(hMapTileset, CB_GETCURSEL, 0, 0);
-            if ( currTileset != CB_ERR && currTileset < (LRESULT)chkd.scData->terrain.tilesetDisplayNames.size())
+            LRESULT listPosition = SendMessage(hMapTileset, CB_GETCURSEL, 0, 0);
+            auto loadedTilesets = chkd.scData->terrain.loadedTilesets();
+            if ( listPosition != CB_ERR && size_t(listPosition) < loadedTilesets.size() )
             {
                 while ( SendMessage(hMapNewTerrain, CB_DELETESTRING, 0, 0) != CB_ERR );
 
-                const auto & tileset = chkd.scData->terrain.get(Sc::Terrain::Tileset(currTileset));
+                const auto & tileset = chkd.scData->terrain.get(Sc::Terrain::Tileset(loadedTilesets[listPosition]));
                 for ( const auto & brushType : tileset.brushes )
                     SendMessage(hMapNewTerrain, CB_ADDSTRING, 0, (LPARAM)icux::toUistring(std::string(brushType.name)).c_str());
 

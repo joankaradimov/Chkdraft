@@ -2154,6 +2154,7 @@ bool Sc::Terrain::Tiles::load(size_t tilesetIndex, ArchiveCluster & archiveClust
             loadTerrainTypes(Terrain::baseOf(tilesetIndex), archiveCluster, tilesetName);
             loadIsom(Terrain::baseOf(tilesetIndex));
 
+            loaded = true;
             return remappingFilesLoaded;
         }
         else
@@ -2177,6 +2178,32 @@ std::optional<uint16_t> Sc::Terrain::Tiles::getDoodadGroupIndex(uint16_t doodadI
 const Sc::Terrain::Tiles & Sc::Terrain::get(const Tileset & tileset) const
 {
     return tilesets[indexOf(tileset)];
+}
+
+std::vector<size_t> Sc::Terrain::loadedTilesets() const
+{
+    std::vector<size_t> loadedTilesets {};
+    for ( size_t i=0; i<tilesets.size(); ++i )
+    {
+        if ( tilesets[i].loaded )
+            loadedTilesets.push_back(i);
+    }
+    return loadedTilesets;
+}
+
+std::vector<std::string> Sc::Terrain::loadedTilesetDisplayNames() const
+{
+    std::vector<std::string> displayNames {};
+    for ( auto tilesetIndex : loadedTilesets() )
+        displayNames.push_back(tilesetDisplayNames[tilesetIndex]);
+    return displayNames;
+}
+
+int Sc::Terrain::loadedPositionOf(size_t tilesetIndex) const
+{
+    auto loaded = loadedTilesets();
+    auto found = std::find(loaded.begin(), loaded.end(), tilesetIndex);
+    return found == loaded.end() ? -1 : int(found - loaded.begin());
 }
 
 bool Sc::Terrain::load(ArchiveCluster & archiveCluster, Sc::TblFilePtr statTxt)
@@ -2208,11 +2235,8 @@ bool Sc::Terrain::load(ArchiveCluster & archiveCluster, Sc::TblFilePtr statTxt)
     tilesets.resize(tilesetNames.size());
     for ( size_t i=0; i<tilesets.size(); i++ )
     {
-        if ( tilesetNames[i].empty() )
-        {
-            logger.error() << "arr\\tilesets.tbl names no files for tileset " << i << std::endl;
-            success = false;
-        }
+        if ( tilesetNames[i].empty() ) // A slot with no tileset in it, which lists leave out
+            logger.info() << "arr\\tilesets.tbl leaves the tileset slot at index " << i << " empty" << std::endl;
         else
             success &= tilesets[i].load(i, archiveCluster, tilesetNames[i], statTxt, doodadSpriteFlags, doodadUnitFlags);
     }

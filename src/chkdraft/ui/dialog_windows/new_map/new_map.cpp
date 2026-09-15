@@ -27,7 +27,9 @@ BOOL NewMap::DlgCommand(HWND hWnd, WPARAM wParam, LPARAM lParam)
 
         editWidth.GetEditNum<int>(width);
         editHeight.GetEditNum<int>(height);
-        listInitialTileset.GetCurSel(tileset);
+        listInitialTileset.GetCurSel(tileset); // The row in the list of loaded tilesets, which the tileset index is read off
+        auto loadedTilesets = chkd.scData->terrain.loadedTilesets();
+        tileset = tileset >= 0 && size_t(tileset) < loadedTilesets.size() ? int(loadedTilesets[tileset]) : 0;
         listInitialTerrain.GetCurSelItem(terrainTypeIndex);
         triggers = dropDefaultTriggers.GetSel();
 
@@ -68,7 +70,9 @@ BOOL NewMap::DlgCommand(HWND hWnd, WPARAM wParam, LPARAM lParam)
                 HWND hInitialTerrain = GetDlgItem(hWnd, IDC_LIST_DEFAULTTERRAIN);
                 HWND hDefaultTrigs = GetDlgItem(hWnd, Id::COMBO_TRIGS);
                 SendMessage(hInitialTerrain, LB_RESETCONTENT, 0, 0);
-                const auto & tileset = chkd.scData->terrain.get(Sc::Terrain::Tileset(itemIndex));
+                auto loadedTilesets = chkd.scData->terrain.loadedTilesets();
+                size_t tilesetIndex = itemIndex >= 0 && size_t(itemIndex) < loadedTilesets.size() ? loadedTilesets[itemIndex] : 0;
+                const auto & tileset = chkd.scData->terrain.get(Sc::Terrain::Tileset(tilesetIndex));
                 for ( const auto & brushType : tileset.brushes )
                 {
                     LRESULT insertionIndex = SendMessage(hInitialTerrain, LB_ADDSTRING, 0, (LPARAM)icux::toUistring(std::string(brushType.name)).c_str());
@@ -116,14 +120,14 @@ BOOL NewMap::DlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 editHeight.SetText("128");
 
                 listInitialTileset.FindThis(hWnd, IDC_LIST_TILESET);
-                listInitialTileset.AddStrings(chkd.scData->terrain.tilesetDisplayNames);
+                listInitialTileset.AddStrings(chkd.scData->terrain.loadedTilesetDisplayNames());
                 listInitialTileset.SetCurSel(0);
                 listInitialTileset.setDefaultFont(false);
 
                 listInitialTerrain.FindThis(hWnd, IDC_LIST_DEFAULTTERRAIN);
 
-                std::vector<std::string> badlandsTerrainTypes {};
-                const auto & tileset = chkd.scData->terrain.get(Sc::Terrain::Tileset::Badlands);
+                auto loadedTilesets = chkd.scData->terrain.loadedTilesets();
+                const auto & tileset = chkd.scData->terrain.get(Sc::Terrain::Tileset(loadedTilesets.empty() ? 0 : loadedTilesets[0]));
                 HWND hInitialTerrain = listInitialTerrain.getHandle();
                 for ( const auto & brushType : tileset.brushes )
                 {

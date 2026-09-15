@@ -33,7 +33,7 @@ bool DimensionsWindow::DestroyThis()
 
 void DimensionsWindow::RefreshWindow()
 {
-    listTileset.SetCurSel(int(chkd.scData->terrain.indexOf(CM->getTileset())));
+    listTileset.SetCurSel(chkd.scData->terrain.loadedPositionOf(chkd.scData->terrain.indexOf(CM->getTileset())));
     UpdateTerrainList();
     editWidth.SetEditNum<u16>(u16(CM->getTileWidth()));
     editHeight.SetEditNum<u16>(u16(CM->getTileHeight()));
@@ -42,10 +42,11 @@ void DimensionsWindow::RefreshWindow()
 void DimensionsWindow::UpdateTerrainList()
 {
     listTerrain.ClearItems();
-    int tilesetIndex = Sc::Terrain::Tileset::Badlands;
-    if ( listTileset.GetCurSel(tilesetIndex) )
+    int listPosition = 0;
+    auto loadedTilesets = chkd.scData->terrain.loadedTilesets();
+    if ( listTileset.GetCurSel(listPosition) && listPosition >= 0 && size_t(listPosition) < loadedTilesets.size() )
     {
-        const auto & tileset = chkd.scData->terrain.get(Sc::Terrain::Tileset(tilesetIndex));
+        const auto & tileset = chkd.scData->terrain.get(Sc::Terrain::Tileset(loadedTilesets[listPosition]));
         for ( const auto & brushType : tileset.brushes )
         {
             LRESULT insertionIndex = SendMessage(listTerrain.getHandle(), LB_ADDSTRING, 0, (LPARAM)icux::toUistring(std::string(brushType.name)).c_str());
@@ -62,7 +63,10 @@ void DimensionsWindow::ResizeChangeTileset()
     auto newHeight = editHeight.GetEditNum<u16>();
     int currTilesetIndex = int(chkd.scData->terrain.indexOf(CM->getTileset()));
     int newTilesetIndex = currTilesetIndex;
-    listTileset.GetCurSel(newTilesetIndex);
+    int listPosition = -1;
+    auto loadedTilesets = chkd.scData->terrain.loadedTilesets();
+    if ( listTileset.GetCurSel(listPosition) && listPosition >= 0 && size_t(listPosition) < loadedTilesets.size() )
+        newTilesetIndex = int(loadedTilesets[listPosition]);
     const auto & tileset = chkd.scData->terrain.get(Sc::Terrain::Tileset(newTilesetIndex));
     LPARAM newTerrainTypeIndex = 0;
     listTerrain.GetCurSelItem(newTerrainTypeIndex);
@@ -118,7 +122,7 @@ void DimensionsWindow::CreateSubWindows(HWND hWnd)
     listTileset.FindThis(hWnd, IDC_LIST_TILESET);
     listTerrain.FindThis(hWnd, IDC_LIST_TERRAIN);
     checkSmoothBorder.FindThis(hWnd, IDC_CHECK_SMOOTHBORDER);
-    listTileset.AddStrings(chkd.scData->terrain.tilesetDisplayNames);
+    listTileset.AddStrings(chkd.scData->terrain.loadedTilesetDisplayNames());
     RefreshWindow();
     editLeft.SetEditNum<int>(0);
     editTop.SetEditNum<int>(0);
