@@ -3477,7 +3477,7 @@ bool MapGraphics::updateGraphics(u64 msSinceLastUpdate)
     auto & tilesetGrp = renderDat->tiles->tilesetGrp;
     if ( tilesetGrp.palette )
     {
-        if ( colorCycler.cycleColors(Sc::Terrain::baseOf(scData.terrain.indexOf(map.getTileset())), tilesetGrp.palette.value()) )
+        if ( colorCycler.cycleColors(scData.terrain.indexOf(map.getTileset()), tilesetGrp.palette.value()) )
         {
             tilesetGrp.palette->update();
             updated = true;

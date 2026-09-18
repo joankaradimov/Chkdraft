@@ -86,7 +86,11 @@ class ColorCycler
     std::chrono::high_resolution_clock::time_point nextTick = std::chrono::high_resolution_clock::now();
 
 public:
-    inline bool cycleColors(size_t tileset, auto & palette) // Returns true if the map should be redrawn
+    // Takes a loaded tileset's index, as Sc::Terrain::indexOf gives, and returns true if the map should be redrawn.
+    // TODO: a tileset past the eight the game ships has no color cycle here. The game gives it the cycle of the shipped
+    // tileset at its index modulo eight, which turns entries the tileset may draw fixed colors in - badlands' 248-254
+    // under art made on ashworld's palette - so nothing turns until a tileset can say which runs of its palette cycle.
+    inline bool cycleColors(size_t tileset, auto & palette)
     {
         bool redraw = false;
         if ( colorCycleClock.tick() )
