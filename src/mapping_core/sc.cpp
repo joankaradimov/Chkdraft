@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <chrono>
 #include <list>
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <tuple>
@@ -1972,21 +1973,28 @@ void Sc::Terrain::Tiles::deriveTerrainTypes(const std::string & tilesetName, std
         totalTypes = std::max(totalTypes, size_t(tileGroup.terrainType) + 1);
 
     std::vector<std::set<uint16_t>> softLinks(totalTypes);
+    std::vector<std::map<uint16_t, size_t>> groupsCarrying(totalTypes); // How many of a type's tile groups carry each soft link
     std::vector<bool> hasHardLinks(totalTypes, false);
     for ( const auto & tileGroup : tileGroups )
     {
         if ( tileGroup.terrainType < 2 )
             continue;
 
+        std::set<uint16_t> carried {};
         for ( Isom::Link link : {tileGroup.links.left, tileGroup.links.top, tileGroup.links.right, tileGroup.links.bottom} )
         {
             if ( link == Isom::Link::None )
                 continue;
             else if ( link <= Isom::Link::SoftLinks )
+            {
                 softLinks[tileGroup.terrainType].insert(uint16_t(link));
+                carried.insert(uint16_t(link));
+            }
             else
                 hasHardLinks[tileGroup.terrainType] = true;
         }
+        for ( auto link : carried )
+            ++groupsCarrying[tileGroup.terrainType][link];
     }
 
     terrainTypes.assign(totalTypes, Isom::TerrainTypeInfo{});
@@ -2025,6 +2033,25 @@ void Sc::Terrain::Tiles::deriveTerrainTypes(const std::string & tilesetName, std
         {
             if ( plainOfLink[link] != 0 )
                 named.insert(plainOfLink[link]);
+        }
+
+        // A transition lies between the two plains most of its tile groups name. Every shipped transition names two
+        // and no more; a tileset built with pieces where three grounds meet has a few groups, filed under a
+        // transition's type because that is the type the ISOM hash asks for them under, that carry a third plain's
+        // link. A type with no hard links draws no shapes and is no transition however many plains it names.
+        if ( named.size() > 2 && hasHardLinks[type] )
+        {
+            std::vector<uint16_t> ranked(named.begin(), named.end());
+            std::map<uint16_t, size_t> namedBy {};
+            for ( const auto & [link, count] : groupsCarrying[type] )
+            {
+                if ( plainOfLink[link] != 0 )
+                    namedBy[plainOfLink[link]] = count;
+            }
+            std::stable_sort(ranked.begin(), ranked.end(), [&](uint16_t l, uint16_t r) { return namedBy[l] > namedBy[r]; });
+            logger.info() << "Tileset " << tilesetName << " terrain type " << type << " names " << named.size()
+                << " plains; it is taken to lie between the two most of its tile groups name, " << ranked[0] << " and " << ranked[1] << std::endl;
+            named = {ranked[0], ranked[1]};
         }
 
         if ( named.size() == 2 )
