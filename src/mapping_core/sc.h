@@ -8,6 +8,7 @@
 #include <array>
 #include <cstdint>
 #include <deque>
+#include <map>
 #include <unordered_map>
 #include <set>
 
@@ -4110,6 +4111,13 @@ namespace Sc {
             std::unordered_map<uint16_t, uint16_t> doodadIdToTileGroup {};
             std::vector<Isom::ShapeLinks> isomLinks {};
 
+            // Where three grounds meet. A shape is the ground at each of a diamond's four corner points - north, east,
+            // south, west - and for every isomLink entry whose shape lies among three grounds that blends join
+            // pairwise, isomPoints holds those four terrain types, with zeroes for every other entry, and
+            // isomValueOfPoints finds the entry again. Both stay empty unless the tileset marks pieces for such a set.
+            std::vector<std::array<uint16_t, 4>> isomPoints {};
+            std::map<std::array<uint16_t, 4>, uint16_t> isomValueOfPoints {};
+
             std::vector<Isom::TerrainTypeInfo> terrainTypes {};
             std::shared_ptr<std::vector<std::string>> terrainTypeNames {};
             std::vector<Isom::TerrainTypeInfo> brushes {};
@@ -4138,6 +4146,9 @@ namespace Sc {
             std::vector<std::vector<uint16_t>> tileGroupsByTerrainType(size_t tilesetIndex, const std::string & tilesetName) const;
 
             void generateIsomLinks(size_t tilesetIndex, const std::string & tilesetName, const std::vector<std::vector<uint16_t>> & terrainTypeTileGroups);
+
+            // Adds the 36 shapes of a three-ground type after the transitions' blocks, where the cv5 marks pieces for one
+            void generateThreeGroundLinks(const std::string & tilesetName);
 
             // Takes the loaded index and name so that what the cv5 lacks can be reported against the table in use
             void loadIsom(size_t tilesetIndex, const std::string & tilesetName);

@@ -8,7 +8,10 @@
 #include <cstring>
 #include <iosfwd>
 #include <map>
+#include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #undef PlaySound
 
@@ -2072,6 +2075,8 @@ namespace Chk {
         Span<uint16_t> terrainTypeMap {};
         uint16_t firstTransitionIsomValue = 0; // The isomLinks before it are the plains, which the last search for a placement covers
         const std::unordered_map<uint32_t, std::vector<uint16_t>>* hashToTileGroup;
+        const std::vector<std::array<uint16_t, 4>>* isomPoints; // The tileset's, empty unless it has grounds that meet three at a time
+        const std::map<std::array<uint16_t, 4>, uint16_t>* isomValueOfPoints;
 
         inline IsomCache(Sc::Terrain::Tileset tileset, size_t tileWidth, size_t tileHeight, const Sc::Terrain::Tiles & tilesetData) :
             isomWidth(tileWidth/2 + 1),
@@ -2081,7 +2086,9 @@ namespace Chk {
             terrainTypes(&tilesetData.terrainTypes[0], tilesetData.terrainTypes.size()),
             terrainTypeMap(&tilesetData.terrainTypeMap[0], tilesetData.terrainTypeMap.size()),
             firstTransitionIsomValue(tilesetData.firstTransitionIsomValue),
-            hashToTileGroup(&tilesetData.hashToTileGroup)
+            hashToTileGroup(&tilesetData.hashToTileGroup),
+            isomPoints(&tilesetData.isomPoints),
+            isomValueOfPoints(&tilesetData.isomValueOfPoints)
         {
             resetChangedArea();
         }
@@ -2100,6 +2107,72 @@ namespace Chk {
             changedArea.right = isomWidth-1;
             changedArea.top = 0;
             changedArea.bottom = isomHeight-1;
+        }
+
+        // The shapes a brush leaves where its ground and every diamond round it lie among three grounds that have a
+        // shape for each filling of a diamond's four corner points. Painting a diamond sets its four points, the four
+        // diamonds that share two of them and the four that share one are read off their points again, and nothing is
+        // searched: with three grounds the search for the shape matching the most neighbors settles for shapes that
+        // fit none of them whole, and the rects between ask for tile groups no tileset has. Over two of the grounds
+        // it sets what the search sets. Returns nothing where a diamond holds any other ground - the search's to place.
+        template <class CentralIsomValue, class InBounds>
+        std::optional<std::vector<std::pair<IsomDiamond, uint16_t>>> shapesByPoints(const std::vector<IsomDiamond> & brushDiamonds,
+            size_t terrainType, CentralIsomValue && centralIsomValue, InBounds && inBounds) const
+        {
+            using Points = std::array<uint16_t, 4>; // north, east, south, west
+            struct Shared { int x; int y; std::array<int, 2> points; }; // A neighbor's offset, and which of its points the brushed diamond shares
+            static constexpr Shared shared[] {
+                {1, -1, {2, 3}}, {-1, -1, {1, 2}}, {1, 1, {0, 3}}, {-1, 1, {0, 1}},
+                {0, -2, {2, -1}}, {2, 0, {3, -1}}, {0, 2, {0, -1}}, {-2, 0, {1, -1}}
+            };
+
+            uint16_t ground = uint16_t(terrainType);
+            if ( isomPoints == nullptr || isomPoints->empty() || brushDiamonds.empty() ||
+                isomValueOfPoints->find(Points{ground, ground, ground, ground}) == isomValueOfPoints->end() )
+            {
+                return std::nullopt;
+            }
+
+            std::map<std::pair<size_t, size_t>, Points> points {};
+            for ( const auto & brushDiamond : brushDiamonds )
+                points[{brushDiamond.x, brushDiamond.y}] = Points{ground, ground, ground, ground};
+
+            for ( const auto & brushDiamond : brushDiamonds )
+            {
+                for ( const auto & neighbor : shared )
+                {
+                    int64_t x = int64_t(brushDiamond.x) + neighbor.x;
+                    int64_t y = int64_t(brushDiamond.y) + neighbor.y;
+                    if ( x < 0 || y < 0 || !inBounds(size_t(x), size_t(y)) )
+                        continue;
+
+                    auto found = points.find({size_t(x), size_t(y)});
+                    if ( found == points.end() )
+                    {
+                        size_t isomValue = centralIsomValue(size_t(x), size_t(y));
+                        if ( isomValue >= isomPoints->size() || (*isomPoints)[isomValue][0] == 0 )
+                            return std::nullopt;
+
+                        found = points.emplace(std::make_pair(size_t(x), size_t(y)), (*isomPoints)[isomValue]).first;
+                    }
+                    for ( int point : neighbor.points )
+                    {
+                        if ( point >= 0 )
+                            found->second[size_t(point)] = ground;
+                    }
+                }
+            }
+
+            std::vector<std::pair<IsomDiamond, uint16_t>> shapes {};
+            for ( const auto & [diamond, diamondPoints] : points )
+            {
+                auto isomValue = isomValueOfPoints->find(diamondPoints);
+                if ( isomValue == isomValueOfPoints->end() )
+                    return std::nullopt;
+
+                shapes.push_back({IsomDiamond{diamond.first, diamond.second}, isomValue->second});
+            }
+            return shapes;
         }
 
         constexpr uint16_t getTerrainTypeIsomValue(size_t terrainType) const

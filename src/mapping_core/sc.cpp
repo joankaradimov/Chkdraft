@@ -1965,6 +1965,205 @@ void Sc::Terrain::Tiles::generateIsomLinks(size_t tilesetIndex, const std::strin
     }
 }
 
+void Sc::Terrain::Tiles::generateThreeGroundLinks(const std::string & tilesetName)
+{
+    // A transition's 14 shapes are the 14 ways its two grounds can sit on a diamond's four corner points without all
+    // four agreeing, and what its pieces draw follows one rule: a cell takes the ground that ranks highest among the
+    // points round it, a blend's outer ground ranking over its inner one. Three grounds that blends join pairwise,
+    // in a consistent order, have 36 more fillings of the four points, and the same rule says what every rect beside
+    // one draws. A tileset built for that files those rects' pieces under a type of their own - or, where a blend's
+    // diamond gives the rect a hard link, under the blend's - and marks each with what it draws: the terrain types
+    // of the bulk of the piece above and of its top left corner in its left stack connection, a byte each, its top
+    // right corner and its bulk in the top one, its two lower corners in the right one, and geometryMark in the
+    // bottom one. The game reads none of those. The 36 shapes' edge links are read back off the marked pieces, so
+    // nothing here knows how the tileset numbered its links.
+    constexpr uint16_t geometryMark = 0x3347;
+    enum : size_t { AboveBulk, TopLeft, TopRight, Bulk, BottomLeft, BottomRight };
+    struct MarkedPiece { std::array<uint16_t, 6> geometry; std::array<Isom::Link, 4> links; }; // links: left, top, right, bottom
+
+    isomPoints.clear();
+    isomValueOfPoints.clear();
+
+    std::vector<MarkedPiece> marked {};
+    std::set<uint16_t> groundSet {};
+    uint16_t threeGroundType = 0;
+    size_t totalTileGroups = std::min(Sc::Terrain::Cv5Dat::MaxTileGroups, tileGroups.size());
+    for ( size_t i=0; i+1<totalTileGroups; i+=2 )
+    {
+        const auto & tileGroup = tileGroups[i];
+        if ( tileGroup.stackConnections.bottom != geometryMark )
+            continue;
+
+        const auto & words = tileGroup.stackConnections;
+        MarkedPiece piece {
+            { uint16_t(words.left & 0xFF), uint16_t(words.left >> 8), uint16_t(words.top & 0xFF), uint16_t(words.top >> 8),
+              uint16_t(words.right & 0xFF), uint16_t(words.right >> 8) },
+            { tileGroup.links.left, tileGroup.links.top, tileGroup.links.right, tileGroup.links.bottom } };
+        for ( auto ground : piece.geometry )
+            groundSet.insert(ground);
+
+        marked.push_back(piece);
+        if ( tileGroup.terrainType < terrainTypes.size() && terrainTypes[tileGroup.terrainType].isomValue == 0 && tileGroup.terrainType > 1 )
+            threeGroundType = tileGroup.terrainType;
+    }
+    if ( marked.empty() )
+        return;
+
+    auto isPlain = [&](uint16_t type) { return type < terrainTypes.size() && terrainTypes[type].brushSortOrder >= 0 && terrainTypes[type].isomValue != 0; };
+    if ( threeGroundType == 0 || threeGroundType > 255 || groundSet.size() != 3 || !std::all_of(groundSet.begin(), groundSet.end(), isPlain) )
+    {
+        logger.warn() << "Tileset " << tilesetName << " marks " << marked.size() << " pieces for grounds that meet three at a time, but not for"
+            << " exactly three plains under a type of their own; they are left to the ordinary tables" << std::endl;
+        return;
+    }
+
+    // The blend between each two of the three, and which of its two grounds is the outer one: edgeNorthWest has the
+    // outside on its top left quadrant and the inside on its bottom right one
+    std::map<std::pair<uint16_t, uint16_t>, uint16_t> outerOfPair {}; // {lower type, higher type} -> the outer ground
+    std::map<uint16_t, size_t> timesOuter {};
+    std::vector<std::array<uint16_t, 3>> blends {}; // terrain type, outer ground, inner ground
+    auto groundOfLinkId = [&](Isom::LinkId linkId) -> uint16_t {
+        for ( auto ground : groundSet ) {
+            if ( terrainTypes[ground].linkId == linkId )
+                return ground;
+        }
+        return 0;
+    };
+    for ( size_t type=2; type<terrainTypes.size(); ++type )
+    {
+        size_t first = terrainTypes[type].isomValue;
+        if ( terrainTypes[type].brushSortOrder >= 0 || first == 0 || first+13 >= isomLinks.size() || isomLinks[first].terrainType != type )
+            continue;
+
+        uint16_t outer = groundOfLinkId(isomLinks[first].topLeft.linkId);
+        uint16_t inner = groundOfLinkId(isomLinks[first].bottomRight.linkId);
+        if ( outer != 0 && inner != 0 && outer != inner )
+        {
+            outerOfPair[{std::min(outer, inner), std::max(outer, inner)}] = outer;
+            ++timesOuter[outer];
+            blends.push_back({uint16_t(type), outer, inner});
+        }
+    }
+    std::vector<uint16_t> grounds(groundSet.begin(), groundSet.end()); // Highest ranking first
+    std::stable_sort(grounds.begin(), grounds.end(), [&](uint16_t l, uint16_t r) { return timesOuter[l] > timesOuter[r]; });
+    if ( outerOfPair.size() != 3 || timesOuter[grounds[0]] != 2 || timesOuter[grounds[1]] != 1 )
+    {
+        logger.warn() << "Tileset " << tilesetName << " marks pieces for three grounds that blends do not join pairwise in one order,"
+            << " the outer ground of each ranking over its inner one; they are left to the ordinary tables" << std::endl;
+        return;
+    }
+    auto rank = [&](uint16_t ground) { return size_t(std::find(grounds.begin(), grounds.end(), ground) - grounds.begin()); };
+    auto highest = [&](std::initializer_list<uint16_t> points) {
+        return *std::min_element(points.begin(), points.end(), [&](uint16_t l, uint16_t r) { return rank(l) < rank(r); });
+    };
+
+    // The corner points of every shape there already is among the three grounds. A quadrant lies between two of the
+    // points - the top right one between north and east - and carries a plain's linkId where both hold that plain,
+    // or the hardcoded id that says which of the two holds the blend's outer ground.
+    using Points = std::array<uint16_t, 4>; // north, east, south, west
+    isomPoints.assign(isomLinks.size(), Points{0, 0, 0, 0});
+    for ( auto ground : grounds )
+    {
+        size_t value = terrainTypes[ground].isomValue;
+        isomPoints[value] = {ground, ground, ground, ground};
+        isomValueOfPoints[isomPoints[value]] = uint16_t(value);
+    }
+    for ( const auto & blend : blends )
+    {
+        uint16_t outer = blend[1], inner = blend[2];
+        for ( size_t value=terrainTypes[blend[0]].isomValue, last=value+14; value<last; ++value )
+        {
+            const auto & shape = isomLinks[value];
+            Points points {0, 0, 0, 0};
+            auto read = [&](Isom::LinkId linkId, size_t first, size_t second, Isom::LinkId firstIsOuter, Isom::LinkId secondIsOuter) {
+                if ( uint16_t ground = groundOfLinkId(linkId) )
+                    points[first] = points[second] = ground;
+                else if ( linkId == firstIsOuter ) {
+                    points[first] = outer;
+                    points[second] = inner;
+                }
+                else if ( linkId == secondIsOuter ) {
+                    points[first] = inner;
+                    points[second] = outer;
+                }
+            };
+            read(shape.topRight.linkId, 0, 1, Isom::LinkId::TRBL_NW, Isom::LinkId::TRBL_SE);    // north, east
+            read(shape.bottomRight.linkId, 1, 2, Isom::LinkId::TLBR_NE, Isom::LinkId::TLBR_SW); // east, south
+            read(shape.bottomLeft.linkId, 2, 3, Isom::LinkId::TRBL_SE, Isom::LinkId::TRBL_NW);  // south, west
+            read(shape.topLeft.linkId, 3, 0, Isom::LinkId::TLBR_SW, Isom::LinkId::TLBR_NE);     // west, north
+            if ( points[0] != 0 && points[1] != 0 && points[2] != 0 && points[3] != 0 )
+            {
+                isomPoints[value] = points;
+                isomValueOfPoints[points] = uint16_t(value);
+            }
+        }
+    }
+
+    // The links a three-ground shape's quadrant puts on its two sides of a rect: those of any marked piece that
+    // draws what the rect has to draw as far as this diamond decides it, and carries soft links on those two sides,
+    // as a three-ground shape always does - a blend's diamond leaves a hard link on one of its two
+    auto findLinks = [&](std::array<int, 6> known, size_t firstSide, size_t secondSide) -> std::optional<std::pair<Isom::Link, Isom::Link>> {
+        for ( const auto & piece : marked )
+        {
+            bool fits = piece.links[firstSide] <= Isom::Link::SoftLinks && piece.links[secondSide] <= Isom::Link::SoftLinks;
+            for ( size_t i=0; fits && i<known.size(); ++i )
+                fits = known[i] < 0 || piece.geometry[i] == uint16_t(known[i]);
+
+            if ( fits )
+                return std::make_pair(piece.links[firstSide], piece.links[secondSide]);
+        }
+        return std::nullopt;
+    };
+    auto linkIdBetween = [&](uint16_t first, uint16_t second, Isom::LinkId firstIsOuter, Isom::LinkId secondIsOuter) {
+        if ( first == second )
+            return terrainTypes[first].linkId;
+        return outerOfPair[{std::min(first, second), std::max(first, second)}] == first ? firstIsOuter : secondIsOuter;
+    };
+
+    enum : size_t { Left, Top, Right, Bottom };
+    size_t firstShape = isomLinks.size();
+    std::vector<Isom::ShapeLinks> shapes {};
+    std::vector<Points> shapePoints {};
+    for ( auto n : grounds ) for ( auto e : grounds ) for ( auto s : grounds ) for ( auto w : grounds )
+    {
+        if ( std::set<uint16_t>{n, e, s, w}.size() != 3 )
+            continue;
+
+        int center = highest({n, e, s, w});
+        auto bottomRight = findLinks({int(highest({n, e})), center, int(e), int(highest({e, s})), int(s), -1}, Left, Top);
+        auto topLeft = findLinks({-1, -1, int(n), int(highest({n, w})), int(w), center}, Right, Bottom);
+        auto topRight = findLinks({-1, int(n), -1, int(highest({n, e})), center, int(e)}, Left, Bottom);
+        auto bottomLeft = findLinks({int(highest({n, w})), int(w), center, int(highest({w, s})), -1, int(s)}, Top, Right);
+        if ( !bottomRight || !topLeft || !topRight || !bottomLeft )
+        {
+            logger.error() << "Tileset " << tilesetName << " marks no piece for a rect beside the three-ground shape with terrain types "
+                << n << ", " << e << ", " << s << ", " << w << " on its north, east, south and west points; its three grounds are left to the ordinary tables" << std::endl;
+            isomPoints.clear();
+            isomValueOfPoints.clear();
+            return;
+        }
+
+        Isom::ShapeLinks shape { uint8_t(threeGroundType) };
+        shape.topLeft = { topLeft->first, topLeft->second, linkIdBetween(w, n, Isom::LinkId::TLBR_SW, Isom::LinkId::TLBR_NE) };
+        shape.topRight = { topRight->first, topRight->second, linkIdBetween(n, e, Isom::LinkId::TRBL_NW, Isom::LinkId::TRBL_SE) };
+        shape.bottomRight = { bottomRight->first, bottomRight->second, linkIdBetween(e, s, Isom::LinkId::TLBR_NE, Isom::LinkId::TLBR_SW) };
+        shape.bottomLeft = { bottomLeft->first, bottomLeft->second, linkIdBetween(s, w, Isom::LinkId::TRBL_SE, Isom::LinkId::TRBL_NW) };
+        shapes.push_back(shape);
+        shapePoints.push_back({n, e, s, w});
+    }
+
+    for ( size_t i=0; i<shapes.size(); ++i )
+    {
+        isomValueOfPoints[shapePoints[i]] = uint16_t(isomLinks.size());
+        isomLinks.push_back(shapes[i]);
+        isomPoints.push_back(shapePoints[i]);
+    }
+    terrainTypes[threeGroundType].isomValue = uint16_t(firstShape);
+
+    logger.info() << "Tileset " << tilesetName << ": " << shapes.size() << " shapes of terrain type " << threeGroundType << " where terrain types "
+        << grounds[0] << ", " << grounds[1] << " and " << grounds[2] << " meet, the first ranking highest, read off " << marked.size() << " marked pieces" << std::endl;
+}
+
 void Sc::Terrain::Tiles::deriveTerrainTypes(const std::string & tilesetName, std::vector<uint16_t> & compressedTerrainTypeMap)
 {
     // The soft links each terrain type carries, and whether it carries hard links; types 0 and 1 are no terrain and doodads
@@ -2176,6 +2375,8 @@ void Sc::Terrain::Tiles::loadIsom(size_t tilesetIndex, const std::string & tiles
     generateIsomLinks(tilesetIndex, tilesetName, terrainTypeTileGroups);
     if ( isomLinks.empty() ) // A tileset with no terrain at all still needs the entry the null type refers to
         isomLinks.push_back(Isom::ShapeLinks{});
+
+    generateThreeGroundLinks(tilesetName);
 
     firstTransitionIsomValue = uint16_t(isomLinks.size());
     for ( size_t i=1; i<terrainTypes.size(); ++i )

@@ -4241,6 +4241,27 @@ bool Scenario::placeIsomTerrain(Chk::IsomDiamond isomDiamond, size_t terrainType
         ++brushMax;
     }
 
+    std::vector<Chk::IsomDiamond> brushDiamonds {};
+    for ( int brushOffsetX=brushMin; brushOffsetX<brushMax; ++brushOffsetX )
+    {
+        for ( int brushOffsetY=brushMin; brushOffsetY<brushMax; ++brushOffsetY )
+        {
+            size_t brushX = isomDiamond.x + brushOffsetX - brushOffsetY;
+            size_t brushY = isomDiamond.y + brushOffsetX + brushOffsetY;
+            if ( isInBounds({brushX, brushY}) )
+                brushDiamonds.push_back(Chk::IsomDiamond{brushX, brushY});
+        }
+    }
+    auto shapesByPoints = cache.shapesByPoints(brushDiamonds, terrainType,
+        [&](size_t x, size_t y) { return size_t(getCentralIsomValue({x, y})); }, [&](size_t x, size_t y) { return isInBounds({x, y}); });
+    if ( shapesByPoints ) // Among three grounds that meet, every shape is read off its diamond's corner points
+    {
+        cache.resetChangedArea();
+        for ( const auto & [diamond, shapeIsomValue] : *shapesByPoints )
+            setDiamondIsomValues(diamond, shapeIsomValue, cache);
+        return true;
+    }
+
     cache.resetChangedArea();
 
     std::deque<Chk::IsomDiamond> diamondsToUpdate {};
