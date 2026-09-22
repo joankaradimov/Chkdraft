@@ -50,6 +50,7 @@ add_subdirectory(cross_cut)
 add_subdirectory(mapping_core)
 add_subdirectory(windows)
 add_subdirectory(chkdraft)
+add_subdirectory(chkdraft_mcp)
 
 add_executable(${This} WIN32 ${Sources} ${Headers})
 target_sources(${This} PRIVATE ../res/resource.rc)
