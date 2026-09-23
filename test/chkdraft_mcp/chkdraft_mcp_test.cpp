@@ -46,7 +46,7 @@ TEST(ChkdraftMcpServer, ProtocolWithoutGameData)
 
     JsonDoc listed = server.handle(JsonDoc::parse("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}"));
     const JsonDoc & tools = *listed.find("result")->find("tools");
-    ASSERT_EQ(tools.items.size(), 9u);
+    ASSERT_EQ(tools.items.size(), 10u);
     for ( const auto & tool : tools.items )
     {
         EXPECT_TRUE(tool.find("name")->isString());
@@ -173,6 +173,21 @@ TEST(ChkdraftMcpService, PlaceBrushSaveAndReload)
     JsonDoc clipped = service.readTiles(mapId, 60, 62, 10, 10, "game");
     EXPECT_EQ(clipped.find("width")->number, 4);
     EXPECT_EQ(clipped.find("height")->number, 2);
+
+    // A tile written directly lands in both scopes, a rectangle of them clips to the map, and nothing stood there to remove
+    JsonDoc placedTile = service.placeTile(mapId, 2, 2, 1, 1, middleTile);
+    EXPECT_EQ(count(*placedTile.find("removed"), "doodads"), 0u);
+    EXPECT_EQ(count(*placedTile.find("removed"), "units"), 0u);
+    for ( const char* scope : {"game", "editor"} )
+    {
+        JsonDoc written = service.readTiles(mapId, 2, 2, 1, 1, scope);
+        EXPECT_EQ(uint16_t(written.find("tiles")->items[0].items[0].number), middleTile);
+    }
+    JsonDoc filled = service.placeTile(mapId, 62, 63, 5, 5, cornerTile);
+    EXPECT_EQ(filled.find("width")->number, 2);
+    EXPECT_EQ(filled.find("height")->number, 1);
+    EXPECT_THROW(service.placeTile(mapId, 64, 0, 1, 1, cornerTile), mcp::ServiceError);
+    EXPECT_THROW(service.placeTile(mapId, 0, 0, 1, 1, 65535), mcp::ServiceError);
 
     // The service takes UTF-8 paths, and a narrow path would be read in the ANSI code page under libc++
     auto filePath = std::filesystem::temp_directory_path() / "chkdraft_mcp_test.chk";

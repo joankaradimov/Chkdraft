@@ -194,8 +194,21 @@ namespace mcp
         properties["extent"] = property("integer", "How many diamonds across the brush is; 1, a single diamond, when left out");
         tools.push(tool("place_brush", "Places a brush on the ISOM diamond under a tile, as a click in the editor does, and redraws the "
             "transitions around it. Returns the diamond, the area of ISOM rectangles that changed, and any doodads and units the new "
-            "tiles removed.",
+            "tiles removed, as place_tile reports them.",
             properties, {"map", "terrain_type", "x", "y"}));
+
+        properties = Json::object();
+        addMapProperty(properties);
+        properties["x"] = property("integer", "The column of the tile, or of the top-left tile of a rectangle");
+        properties["y"] = property("integer", "The row of the tile, or of the top-left tile of a rectangle");
+        properties["tile"] = property("integer", "The tile value: 16 times a cv5 tile group plus a megatile index 0 to 15 within it");
+        properties["width"] = property("integer", "How many columns to fill; 1 when left out; clipped to the map");
+        properties["height"] = property("integer", "How many rows to fill; 1 when left out; clipped to the map");
+        tools.push(tool("place_tile", "Writes a tile value onto a tile, or onto every tile of a rectangle, without regard to the ISOM "
+            "diamonds, as the editor's tile layer does. The editor's tiles (TILE) and the game's (MTXM) both take it, unless a doodad "
+            "stands on the tile legitimately. A doodad the new tile invalidates is removed with its sprite, and a unit left on ground it "
+            "cannot stand on is removed; both are reported. The ISOM grid is left as it was, so a later place_brush nearby repaints the tile.",
+            properties, {"map", "x", "y", "tile"}));
 
         properties = Json::object();
         addMapProperty(properties);
@@ -244,6 +257,11 @@ namespace mcp
         {
             return service.placeBrush(requireMapId(arguments), requireIndex(arguments, "terrain_type"), requireIndex(arguments, "x"),
                 requireIndex(arguments, "y"), optionalIndex(arguments, "extent").value_or(1));
+        }
+        else if ( name == "place_tile" )
+        {
+            return service.placeTile(requireMapId(arguments), requireIndex(arguments, "x"), requireIndex(arguments, "y"),
+                optionalIndex(arguments, "width").value_or(1), optionalIndex(arguments, "height").value_or(1), requireIndex(arguments, "tile"));
         }
         else if ( name == "read_tiles" )
         {

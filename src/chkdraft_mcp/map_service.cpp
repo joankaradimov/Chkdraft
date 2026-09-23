@@ -468,6 +468,40 @@ namespace mcp
         return json;
     }
 
+    Json MapService::placeTile(int mapId, size_t left, size_t top, size_t width, size_t height, size_t tileValue)
+    {
+        auto & open = openMap(mapId);
+        size_t mapWidth = open.map->getTileWidth();
+        size_t mapHeight = open.map->getTileHeight();
+        if ( left >= mapWidth || top >= mapHeight )
+            throw ServiceError("Tile (" + std::to_string(left) + ", " + std::to_string(top) + ") is outside the map");
+        if ( width == 0 || height == 0 )
+            throw ServiceError("The width and height have to be at least 1");
+
+        const auto & tiles = open.data->terrain.get(open.map->getTileset());
+        if ( tileValue/16 >= tiles.tileGroups.size() )
+            throw ServiceError("Tile value " + std::to_string(tileValue) + " is past the tileset's " + std::to_string(tiles.tileGroups.size()) + " tile groups");
+
+        size_t right = std::min(mapWidth, left + width);
+        size_t bottom = std::min(mapHeight, top + height);
+        Removed removed {};
+        for ( size_t y=top; y<bottom; ++y )
+        {
+            for ( size_t x=left; x<right; ++x )
+                open.map->placeTile(x, y, uint16_t(tileValue), *open.data, removed);
+        }
+
+        Json json = Json::object();
+        json["map"] = Json(mapId);
+        json["left"] = Json(left);
+        json["top"] = Json(top);
+        json["width"] = Json(right - left);
+        json["height"] = Json(bottom - top);
+        json["tile"] = Json(tileValue);
+        json["removed"] = removedJson(removed);
+        return json;
+    }
+
     Json MapService::readTiles(int mapId, size_t left, size_t top, size_t width, size_t height, const std::string & scope)
     {
         auto & open = openMap(mapId);

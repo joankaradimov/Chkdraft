@@ -41,6 +41,7 @@ namespace mcp
         Json loadMap(const DataFiles & files, const std::string & path);
         Json listBrushes(int mapId);
         Json placeBrush(int mapId, size_t terrainType, size_t tileX, size_t tileY, size_t extent);
+        Json placeTile(int mapId, size_t left, size_t top, size_t width, size_t height, size_t tileValue);
         Json readTiles(int mapId, size_t left, size_t top, size_t width, size_t height, const std::string & scope);
         Json readIsom(int mapId, size_t left, size_t top, size_t width, size_t height);
         Json saveMap(int mapId, const std::string & path, const std::string & format);
