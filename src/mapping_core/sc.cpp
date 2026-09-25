@@ -1973,11 +1973,12 @@ void Sc::Terrain::Tiles::generateThreeGroundLinks(const std::string & tilesetNam
     // in a consistent order, have 36 more fillings of the four points, and the same rule says what every rect beside
     // one draws. A tileset built for that files those rects' pieces under a type of their own - or, where a blend's
     // diamond gives the rect a hard link, under the blend's - and marks each with what it draws: the terrain types
-    // of the bulk of the piece above and of its top left corner in its left stack connection, a byte each, its top
-    // right corner and its bulk in the top one, its two lower corners in the right one, and geometryMark in the
-    // bottom one. The game reads none of those. The 36 shapes' edge links are read back off the marked pieces, so
-    // nothing here knows how the tileset numbered its links.
-    constexpr uint16_t geometryMark = 0x3347;
+    // of the bulk of the piece above, its top left and top right corners, its bulk and its two lower corners, five
+    // bits each from the low end of the left stack connection word on into the right one, under the two high bits of
+    // the right one, which no stock stack connection has set; its top and bottom words stay 0, since
+    // updateTileFromIsom walks a stack by those. The game reads none of the four. The 36 shapes' edge links are
+    // read back off the marked pieces, so nothing here knows how the tileset numbered its links.
+    constexpr uint16_t geometryMark = 0xC000;
     enum : size_t { AboveBulk, TopLeft, TopRight, Bulk, BottomLeft, BottomRight };
     struct MarkedPiece { std::array<uint16_t, 6> geometry; std::array<Isom::Link, 4> links; }; // links: left, top, right, bottom
 
@@ -1991,14 +1992,14 @@ void Sc::Terrain::Tiles::generateThreeGroundLinks(const std::string & tilesetNam
     for ( size_t i=0; i+1<totalTileGroups; i+=2 )
     {
         const auto & tileGroup = tileGroups[i];
-        if ( tileGroup.stackConnections.bottom != geometryMark )
+        const auto & words = tileGroup.stackConnections;
+        if ( (words.right & geometryMark) != geometryMark || words.top != 0 || words.bottom != 0 )
             continue;
 
-        const auto & words = tileGroup.stackConnections;
-        MarkedPiece piece {
-            { uint16_t(words.left & 0xFF), uint16_t(words.left >> 8), uint16_t(words.top & 0xFF), uint16_t(words.top >> 8),
-              uint16_t(words.right & 0xFF), uint16_t(words.right >> 8) },
-            { tileGroup.links.left, tileGroup.links.top, tileGroup.links.right, tileGroup.links.bottom } };
+        uint32_t packed = uint32_t(words.left) | (uint32_t(words.right) << 16);
+        MarkedPiece piece { {}, { tileGroup.links.left, tileGroup.links.top, tileGroup.links.right, tileGroup.links.bottom } };
+        for ( size_t cell=0; cell<piece.geometry.size(); ++cell )
+            piece.geometry[cell] = uint16_t((packed >> (5*cell)) & 31);
         for ( auto ground : piece.geometry )
             groundSet.insert(ground);
 
