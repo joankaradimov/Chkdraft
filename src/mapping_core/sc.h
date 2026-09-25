@@ -4112,11 +4112,14 @@ namespace Sc {
             std::vector<Isom::ShapeLinks> isomLinks {};
 
             // Where three grounds meet. A shape is the ground at each of a diamond's four corner points - north, east,
-            // south, west - and for every isomLink entry whose shape lies among three grounds that blends join
-            // pairwise, isomPoints holds those four terrain types, with zeroes for every other entry, and
-            // isomValueOfPoints finds the entry again. Both stay empty unless the tileset marks pieces for such a set.
+            // south, west - and for every isomLink entry whose shape that describes, isomPoints holds those four terrain
+            // types, with zeroes for every other entry, and isomValueOfPoints finds the entry again. groundStep holds,
+            // for two plains a and b at [a*terrainTypes.size() + b], the plain one blend from a on a shortest way to b:
+            // b itself where a blend joins them, 0 where nothing does. All three stay empty unless the tileset marks
+            // pieces for grounds that meet three at a time, and then the brush places every ground by its points.
             std::vector<std::array<uint16_t, 4>> isomPoints {};
             std::map<std::array<uint16_t, 4>, uint16_t> isomValueOfPoints {};
+            std::vector<uint16_t> groundStep {};
 
             std::vector<Isom::TerrainTypeInfo> terrainTypes {};
             std::shared_ptr<std::vector<std::string>> terrainTypeNames {};

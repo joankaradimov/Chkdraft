@@ -1984,6 +1984,7 @@ void Sc::Terrain::Tiles::generateThreeGroundLinks(const std::string & tilesetNam
 
     isomPoints.clear();
     isomValueOfPoints.clear();
+    groundStep.clear();
 
     std::vector<MarkedPiece> marked {};
     std::set<uint16_t> groundSet {};
@@ -2058,34 +2059,59 @@ void Sc::Terrain::Tiles::generateThreeGroundLinks(const std::string & tilesetNam
         return *std::min_element(points.begin(), points.end(), [&](uint16_t l, uint16_t r) { return rank(l) < rank(r); });
     };
 
-    // The corner points of every shape there already is among the three grounds. A quadrant lies between two of the
-    // points - the top right one between north and east - and carries a plain's linkId where both hold that plain,
-    // or the hardcoded id that says which of the two holds the blend's outer ground.
+    // The corner points of every shape the tileset has, which the brush places by: a plain's four hold the plain,
+    // and a transition's quadrant lies between two of the points - the top right one between north and east - and
+    // carries a plain's linkId where both hold that plain, or the hardcoded id that says which of the two holds its
+    // outer ground. With shapes among three grounds on the map the search for the shape matching the most neighbors
+    // must not run at all - it settles for shapes that fit none of them whole - so every ground goes by its points.
     using Points = std::array<uint16_t, 4>; // north, east, south, west
     isomPoints.assign(isomLinks.size(), Points{0, 0, 0, 0});
-    for ( auto ground : grounds )
+    auto plainOfLinkId = [&](Isom::LinkId linkId) -> uint16_t {
+        for ( size_t type=2; type<terrainTypes.size(); ++type )
+        {
+            if ( isPlain(uint16_t(type)) && terrainTypes[type].linkId == linkId )
+                return uint16_t(type);
+        }
+        return 0;
+    };
+    size_t totalTypes = terrainTypes.size();
+    std::vector<std::vector<uint16_t>> near(totalTypes);
+    for ( size_t type=2; type<totalTypes; ++type )
     {
-        size_t value = terrainTypes[ground].isomValue;
-        isomPoints[value] = {ground, ground, ground, ground};
-        isomValueOfPoints[isomPoints[value]] = uint16_t(value);
-    }
-    for ( const auto & blend : blends )
-    {
-        uint16_t outer = blend[1], inner = blend[2];
-        for ( size_t value=terrainTypes[blend[0]].isomValue, last=value+14; value<last; ++value )
+        size_t first = terrainTypes[type].isomValue;
+        if ( isPlain(uint16_t(type)) )
+        {
+            if ( first < isomPoints.size() )
+            {
+                isomPoints[first] = {uint16_t(type), uint16_t(type), uint16_t(type), uint16_t(type)};
+                isomValueOfPoints[isomPoints[first]] = uint16_t(first);
+            }
+            continue;
+        }
+        if ( first == 0 || first+13 >= isomLinks.size() || isomLinks[first].terrainType != type )
+            continue;
+
+        uint16_t outer = plainOfLinkId(isomLinks[first].topLeft.linkId);
+        uint16_t inner = plainOfLinkId(isomLinks[first].bottomRight.linkId);
+        if ( outer == 0 || inner == 0 || outer == inner )
+            continue;
+
+        near[outer].push_back(inner);
+        near[inner].push_back(outer);
+        for ( size_t value=first, last=first+14; value<last; ++value )
         {
             const auto & shape = isomLinks[value];
             Points points {0, 0, 0, 0};
-            auto read = [&](Isom::LinkId linkId, size_t first, size_t second, Isom::LinkId firstIsOuter, Isom::LinkId secondIsOuter) {
-                if ( uint16_t ground = groundOfLinkId(linkId) )
-                    points[first] = points[second] = ground;
+            auto read = [&](Isom::LinkId linkId, size_t firstPoint, size_t secondPoint, Isom::LinkId firstIsOuter, Isom::LinkId secondIsOuter) {
+                if ( uint16_t ground = plainOfLinkId(linkId) )
+                    points[firstPoint] = points[secondPoint] = ground;
                 else if ( linkId == firstIsOuter ) {
-                    points[first] = outer;
-                    points[second] = inner;
+                    points[firstPoint] = outer;
+                    points[secondPoint] = inner;
                 }
                 else if ( linkId == secondIsOuter ) {
-                    points[first] = inner;
-                    points[second] = outer;
+                    points[firstPoint] = inner;
+                    points[secondPoint] = outer;
                 }
             };
             read(shape.topRight.linkId, 0, 1, Isom::LinkId::TRBL_NW, Isom::LinkId::TRBL_SE);    // north, east
@@ -2095,7 +2121,34 @@ void Sc::Terrain::Tiles::generateThreeGroundLinks(const std::string & tilesetNam
             if ( points[0] != 0 && points[1] != 0 && points[2] != 0 && points[3] != 0 )
             {
                 isomPoints[value] = points;
-                isomValueOfPoints[points] = uint16_t(value);
+                isomValueOfPoints.emplace(points, uint16_t(value));
+            }
+        }
+    }
+
+    // One step through the blends from each plain towards each other one, breadth first, so that the brush can
+    // push back a ground no blend joins to the one it lays, the way the search puts dirt between grass and mud
+    groundStep.assign(totalTypes*totalTypes, 0);
+    for ( size_t from=2; from<totalTypes; ++from )
+    {
+        if ( !isPlain(uint16_t(from)) )
+            continue;
+
+        std::deque<uint16_t> queue { uint16_t(from) };
+        std::vector<bool> reached(totalTypes, false);
+        reached[from] = true;
+        while ( !queue.empty() )
+        {
+            uint16_t here = queue.front();
+            queue.pop_front();
+            for ( auto there : near[here] )
+            {
+                if ( reached[there] )
+                    continue;
+
+                reached[there] = true;
+                groundStep[from*totalTypes + there] = here == from ? there : groundStep[from*totalTypes + here];
+                queue.push_back(there);
             }
         }
     }
@@ -2173,28 +2226,21 @@ void Sc::Terrain::Tiles::deriveTerrainTypes(const std::string & tilesetName, std
         totalTypes = std::max(totalTypes, size_t(tileGroup.terrainType) + 1);
 
     std::vector<std::set<uint16_t>> softLinks(totalTypes);
-    std::vector<std::map<uint16_t, size_t>> groupsCarrying(totalTypes); // How many of a type's tile groups carry each soft link
     std::vector<bool> hasHardLinks(totalTypes, false);
     for ( const auto & tileGroup : tileGroups )
     {
         if ( tileGroup.terrainType < 2 )
             continue;
 
-        std::set<uint16_t> carried {};
         for ( Isom::Link link : {tileGroup.links.left, tileGroup.links.top, tileGroup.links.right, tileGroup.links.bottom} )
         {
             if ( link == Isom::Link::None )
                 continue;
             else if ( link <= Isom::Link::SoftLinks )
-            {
                 softLinks[tileGroup.terrainType].insert(uint16_t(link));
-                carried.insert(uint16_t(link));
-            }
             else
                 hasHardLinks[tileGroup.terrainType] = true;
         }
-        for ( auto link : carried )
-            ++groupsCarrying[tileGroup.terrainType][link];
     }
 
     terrainTypes.assign(totalTypes, Isom::TerrainTypeInfo{});
@@ -2233,25 +2279,6 @@ void Sc::Terrain::Tiles::deriveTerrainTypes(const std::string & tilesetName, std
         {
             if ( plainOfLink[link] != 0 )
                 named.insert(plainOfLink[link]);
-        }
-
-        // A transition lies between the two plains most of its tile groups name. Every shipped transition names two
-        // and no more; a tileset built with pieces where three grounds meet has a few groups, filed under a
-        // transition's type because that is the type the ISOM hash asks for them under, that carry a third plain's
-        // link. A type with no hard links draws no shapes and is no transition however many plains it names.
-        if ( named.size() > 2 && hasHardLinks[type] )
-        {
-            std::vector<uint16_t> ranked(named.begin(), named.end());
-            std::map<uint16_t, size_t> namedBy {};
-            for ( const auto & [link, count] : groupsCarrying[type] )
-            {
-                if ( plainOfLink[link] != 0 )
-                    namedBy[plainOfLink[link]] = count;
-            }
-            std::stable_sort(ranked.begin(), ranked.end(), [&](uint16_t l, uint16_t r) { return namedBy[l] > namedBy[r]; });
-            logger.info() << "Tileset " << tilesetName << " terrain type " << type << " names " << named.size()
-                << " plains; it is taken to lie between the two most of its tile groups name, " << ranked[0] << " and " << ranked[1] << std::endl;
-            named = {ranked[0], ranked[1]};
         }
 
         if ( named.size() == 2 )

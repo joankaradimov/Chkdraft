@@ -6,8 +6,10 @@
 #include "sc.h"
 #include <bitset>
 #include <cstring>
+#include <deque>
 #include <iosfwd>
 #include <map>
+#include <set>
 #include <optional>
 #include <string>
 #include <utility>
@@ -2077,6 +2079,7 @@ namespace Chk {
         const std::unordered_map<uint32_t, std::vector<uint16_t>>* hashToTileGroup;
         const std::vector<std::array<uint16_t, 4>>* isomPoints; // The tileset's, empty unless it has grounds that meet three at a time
         const std::map<std::array<uint16_t, 4>, uint16_t>* isomValueOfPoints;
+        const std::vector<uint16_t>* groundStep;
 
         inline IsomCache(Sc::Terrain::Tileset tileset, size_t tileWidth, size_t tileHeight, const Sc::Terrain::Tiles & tilesetData) :
             isomWidth(tileWidth/2 + 1),
@@ -2088,7 +2091,8 @@ namespace Chk {
             firstTransitionIsomValue(tilesetData.firstTransitionIsomValue),
             hashToTileGroup(&tilesetData.hashToTileGroup),
             isomPoints(&tilesetData.isomPoints),
-            isomValueOfPoints(&tilesetData.isomValueOfPoints)
+            isomValueOfPoints(&tilesetData.isomValueOfPoints),
+            groundStep(&tilesetData.groundStep)
         {
             resetChangedArea();
         }
@@ -2109,68 +2113,133 @@ namespace Chk {
             changedArea.bottom = isomHeight-1;
         }
 
-        // The shapes a brush leaves where its ground and every diamond round it lie among three grounds that have a
-        // shape for each filling of a diamond's four corner points. Painting a diamond sets its four points, the four
-        // diamonds that share two of them and the four that share one are read off their points again, and nothing is
-        // searched: with three grounds the search for the shape matching the most neighbors settles for shapes that
-        // fit none of them whole, and the rects between ask for tile groups no tileset has. Over two of the grounds
-        // it sets what the search sets. Returns nothing where a diamond holds any other ground - the search's to place.
+        // The shapes a brush leaves, on a tileset whose grounds can meet three at a time. Every shape is the ground at
+        // each of a diamond's four corner points, so the map is a grid of points: painting sets the brush diamonds'
+        // points to its ground, and then, outward from them, wherever two points of one diamond hold grounds that no
+        // blend joins, the one not yet set is set to the ground one blend from its neighbor's towards its own - dirt
+        // between grass and mud. Every diamond round a point that changed is read off its points again, and nothing
+        // is searched: with three grounds the search for the shape matching the most neighbors settles for shapes
+        // that fit none of them whole, and the rects between ask for tile groups no tileset has. Over two grounds it
+        // sets what the search sets but for a handful of diamonds. Returns the diamonds whose shape changes, and the
+        // brush's own, or nothing where the tileset has no such grounds or a diamond holds a shape without points.
         template <class CentralIsomValue, class InBounds>
         std::optional<std::vector<std::pair<IsomDiamond, uint16_t>>> shapesByPoints(const std::vector<IsomDiamond> & brushDiamonds,
             size_t terrainType, CentralIsomValue && centralIsomValue, InBounds && inBounds) const
         {
             using Points = std::array<uint16_t, 4>; // north, east, south, west
-            struct Shared { int x; int y; std::array<int, 2> points; }; // A neighbor's offset, and which of its points the brushed diamond shares
-            static constexpr Shared shared[] {
-                {1, -1, {2, 3}}, {-1, -1, {1, 2}}, {1, 1, {0, 3}}, {-1, 1, {0, 1}},
-                {0, -2, {2, -1}}, {2, 0, {3, -1}}, {0, 2, {0, -1}}, {-2, 0, {1, -1}}
-            };
+            using Point = std::pair<int64_t, int64_t>; // A diamond's corner point lies one step north, east, south or west of its centre
+            static constexpr int64_t offsetX[4] {0, 1, 0, -1};
+            static constexpr int64_t offsetY[4] {-1, 0, 1, 0};
 
             uint16_t ground = uint16_t(terrainType);
-            if ( isomPoints == nullptr || isomPoints->empty() || brushDiamonds.empty() ||
-                isomValueOfPoints->find(Points{ground, ground, ground, ground}) == isomValueOfPoints->end() )
+            size_t totalTypes = terrainTypes.size();
+            if ( isomPoints == nullptr || isomPoints->empty() || groundStep == nullptr || groundStep->size() != totalTypes*totalTypes ||
+                brushDiamonds.empty() || isomValueOfPoints->find(Points{ground, ground, ground, ground}) == isomValueOfPoints->end() )
             {
                 return std::nullopt;
             }
 
-            std::map<std::pair<size_t, size_t>, Points> points {};
-            for ( const auto & brushDiamond : brushDiamonds )
-                points[{brushDiamond.x, brushDiamond.y}] = Points{ground, ground, ground, ground};
+            auto diamondInBounds = [&](int64_t x, int64_t y) { return x >= 0 && y >= 0 && inBounds(size_t(x), size_t(y)); };
+            auto pointsOf = [&](int64_t x, int64_t y) -> const Points* {
+                size_t isomValue = centralIsomValue(size_t(x), size_t(y));
+                return isomValue < isomPoints->size() && (*isomPoints)[isomValue][0] != 0 ? &(*isomPoints)[isomValue] : nullptr;
+            };
 
-            for ( const auto & brushDiamond : brushDiamonds )
-            {
-                for ( const auto & neighbor : shared )
+            std::map<Point, uint16_t> points {}; // The points this placement sets
+            bool unreadable = false;
+            auto pointAt = [&](const Point & point) -> uint16_t { // 0 where no diamond on the map has the point
+                if ( auto found = points.find(point); found != points.end() )
+                    return found->second;
+
+                for ( size_t i=0; i<4; ++i ) // The diamond whose point i this is
                 {
-                    int64_t x = int64_t(brushDiamond.x) + neighbor.x;
-                    int64_t y = int64_t(brushDiamond.y) + neighbor.y;
-                    if ( x < 0 || y < 0 || !inBounds(size_t(x), size_t(y)) )
-                        continue;
-
-                    auto found = points.find({size_t(x), size_t(y)});
-                    if ( found == points.end() )
+                    int64_t x = point.first - offsetX[i];
+                    int64_t y = point.second - offsetY[i];
+                    if ( diamondInBounds(x, y) )
                     {
-                        size_t isomValue = centralIsomValue(size_t(x), size_t(y));
-                        if ( isomValue >= isomPoints->size() || (*isomPoints)[isomValue][0] == 0 )
+                        if ( const Points* diamondPoints = pointsOf(x, y) )
+                            return (*diamondPoints)[i];
+
+                        unreadable = true;
+                        return 0;
+                    }
+                }
+                return 0;
+            };
+
+            std::set<Point> fixed {};
+            std::deque<Point> queue {};
+            for ( const auto & diamond : brushDiamonds )
+            {
+                for ( size_t i=0; i<4; ++i )
+                {
+                    Point point { int64_t(diamond.x) + offsetX[i], int64_t(diamond.y) + offsetY[i] };
+                    points[point] = ground;
+                    if ( fixed.insert(point).second )
+                        queue.push_back(point);
+                }
+            }
+            while ( !queue.empty() )
+            {
+                Point point = queue.front();
+                queue.pop_front();
+                uint16_t here = points[point];
+                for ( size_t i=0; i<4; ++i ) // The four diamonds round the point, and their other points
+                {
+                    int64_t x = point.first - offsetX[i];
+                    int64_t y = point.second - offsetY[i];
+                    for ( size_t j=0; j<4; ++j )
+                    {
+                        Point other { x + offsetX[j], y + offsetY[j] };
+                        if ( other == point || fixed.count(other) != 0 )
+                            continue;
+
+                        uint16_t there = pointAt(other);
+                        if ( unreadable )
+                            return std::nullopt;
+                        if ( there == 0 || there == here || there >= totalTypes || (*groundStep)[here*totalTypes + there] == there )
+                            continue;
+
+                        uint16_t step = (*groundStep)[here*totalTypes + there];
+                        if ( step == 0 ) // No blends lead from the one to the other
                             return std::nullopt;
 
-                        found = points.emplace(std::make_pair(size_t(x), size_t(y)), (*isomPoints)[isomValue]).first;
-                    }
-                    for ( int point : neighbor.points )
-                    {
-                        if ( point >= 0 )
-                            found->second[size_t(point)] = ground;
+                        points[other] = step;
+                        fixed.insert(other);
+                        queue.push_back(other);
                     }
                 }
             }
 
-            std::vector<std::pair<IsomDiamond, uint16_t>> shapes {};
-            for ( const auto & [diamond, diamondPoints] : points )
+            std::set<std::pair<size_t, size_t>> brushed {}, reshaped {};
+            for ( const auto & diamond : brushDiamonds )
+                brushed.insert({diamond.x, diamond.y});
+            for ( const auto & [point, pointGround] : points )
             {
+                for ( size_t i=0; i<4; ++i )
+                {
+                    int64_t x = point.first - offsetX[i];
+                    int64_t y = point.second - offsetY[i];
+                    if ( diamondInBounds(x, y) )
+                        reshaped.insert({size_t(x), size_t(y)});
+                }
+            }
+
+            std::vector<std::pair<IsomDiamond, uint16_t>> shapes {};
+            for ( const auto & [x, y] : reshaped )
+            {
+                Points diamondPoints {};
+                for ( size_t i=0; i<4; ++i )
+                    diamondPoints[i] = pointAt({int64_t(x) + offsetX[i], int64_t(y) + offsetY[i]});
+                if ( unreadable )
+                    return std::nullopt;
+
                 auto isomValue = isomValueOfPoints->find(diamondPoints);
                 if ( isomValue == isomValueOfPoints->end() )
                     return std::nullopt;
 
-                shapes.push_back({IsomDiamond{diamond.first, diamond.second}, isomValue->second});
+                if ( isomValue->second != centralIsomValue(x, y) || brushed.count({x, y}) != 0 )
+                    shapes.push_back({IsomDiamond{x, y}, isomValue->second});
             }
             return shapes;
         }

@@ -4254,7 +4254,7 @@ bool Scenario::placeIsomTerrain(Chk::IsomDiamond isomDiamond, size_t terrainType
     }
     auto shapesByPoints = cache.shapesByPoints(brushDiamonds, terrainType,
         [&](size_t x, size_t y) { return size_t(getCentralIsomValue({x, y})); }, [&](size_t x, size_t y) { return isInBounds({x, y}); });
-    if ( shapesByPoints ) // Among three grounds that meet, every shape is read off its diamond's corner points
+    if ( shapesByPoints ) // Where grounds can meet three at a time, every shape is read off its diamond's corner points
     {
         cache.resetChangedArea();
         for ( const auto & [diamond, shapeIsomValue] : *shapesByPoints )
